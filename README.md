@@ -38,3 +38,13 @@ npm run build          # static site in ./build
 ```
 
 The camera needs HTTPS or localhost. To try it on an Android phone during development, use Chrome's remote debugging port forwarding, or deploy a preview.
+
+## Deploy
+
+Hosted on Cloudflare (Workers static assets), configured in `wrangler.jsonc`. With the GitHub repo connected in Cloudflare, every push to `main` builds and deploys. Build settings:
+
+- Build command: `npm run build`
+- Deploy command: `npx wrangler deploy`
+- Build variables: `PUBLIC_GOOGLE_CLIENT_ID`, `PUBLIC_GOOGLE_API_KEY` (same values as `.env`)
+
+Manual deploy from a computer: `npx wrangler login`, then `npm run deploy`.
