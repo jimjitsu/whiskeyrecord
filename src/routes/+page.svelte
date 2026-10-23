@@ -6,6 +6,7 @@
 	import { createPhotoUrls } from '#lib/photoUrl.svelte.ts';
 	import AppHeader from '#lib/components/AppHeader.svelte';
 	import WhiskeyCard from '#lib/components/WhiskeyCard.svelte';
+	import SyncStatus from '#lib/components/SyncStatus.svelte';
 
 	// Home is the search screen: type to filter, or tap the camera to add.
 	let whiskeys = $state<Whiskey[]>([]);
@@ -32,7 +33,10 @@
 
 <AppHeader>
 	{#snippet right()}
-		<a class="btn" href="/settings">Settings</a>
+		<div class="header-actions">
+			<SyncStatus />
+			<a class="btn" href="/settings">Settings</a>
+		</div>
 	{/snippet}
 </AppHeader>
 
@@ -70,7 +74,7 @@
 		<p class="eyebrow count">
 			{query
 				? `${results.length} match${results.length === 1 ? '' : 'es'}`
-				: `${whiskeys.length} whiskeys`}
+				: `${whiskeys.length} whiskey${whiskeys.length === 1 ? '' : 's'}`}
 		</p>
 		<ul>
 			{#each results as w (w.id)}
@@ -93,6 +97,11 @@
 </a>
 
 <style>
+	.header-actions {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+	}
 	main {
 		display: grid;
 		gap: var(--space-4);

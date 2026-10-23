@@ -1,4 +1,4 @@
-import { db, deleteWhiskey, type Whiskey } from './db';
+import { db, deleteWhiskey, saveWhiskey, type Whiskey } from './db';
 
 /** What the "Saved · Undo" toast needs to put things back. */
 export interface UndoEntry {
@@ -34,7 +34,13 @@ export async function applyUndo(entry: UndoEntry): Promise<'deleted' | 'restored
 		await deleteWhiskey(entry.id);
 		return 'deleted';
 	}
-	await db.whiskeys.put({ ...entry.previous, dirty: 1, updatedAt: new Date().toISOString() });
+	// Keep the current sync bookkeeping so the sheet row is updated, not duplicated.
+	const current = await db.whiskeys.get(entry.id);
+	await saveWhiskey({
+		...entry.previous,
+		syncedHash: current?.syncedHash,
+		lastSyncedAt: current?.lastSyncedAt
+	});
 	return 'restored';
 }
 

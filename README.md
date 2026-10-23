@@ -4,7 +4,11 @@ A small installable web app (PWA) for keeping track of whiskeys you've tried or 
 
 ## Status
 
-Working now, on-device only:
+Working now:
+
+- Google sign-in (browser only, `drive.file` permission) and two-way sync with a Google Sheet the app creates; photos go to a "Whiskey Record Photos" folder in Drive
+- A second device finds the existing sheet automatically
+- Edits made directly in the sheet sync back, including rows typed in by hand
 
 - Search home screen with typo-tolerant matching
 - In-app camera with gallery picker and multiple photos (first is the cover)
@@ -13,7 +17,11 @@ Working now, on-device only:
 - Offline support (service worker) and installable manifest
 - Export CSV
 
-Next: Google sign-in and Sheet sync, then OpenRouter label reading.
+Next: OpenRouter label reading.
+
+### How sync works
+
+The sheet is the source of truth; the device keeps a copy for search and offline use. Rows are matched by the ID column. Changed on one side only → that side wins; changed on both → the newer Updated time wins. Google access tokens last about an hour and there's no refresh token without a server, so after that the sync chip asks for a tap to renew.
 
 ## Stack
 
