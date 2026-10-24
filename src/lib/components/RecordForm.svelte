@@ -110,6 +110,7 @@
 	];
 	let reading = $state(false);
 	let readError = $state('');
+	let readDetails = $state('');
 	let readNote = $state('');
 	/** Fields the AI filled in, shown with a "Filled by AI" note until edited. */
 	let aiFilled = $state<Partial<Record<AiField, boolean>>>({});
@@ -126,6 +127,7 @@
 
 	async function runRead() {
 		readError = '';
+		readDetails = '';
 		readNote = '';
 		const blobs = await photoBlobs();
 		if (!blobs.length) {
@@ -141,8 +143,8 @@
 			if ((e as Error).name === 'AbortError') {
 				if (reading) readError = 'The AI took too long. Fill it in yourself, or try again.';
 			} else {
-				readError =
-					e instanceof AiError || e instanceof Error ? e.message : 'Label reading failed.';
+				readError = e instanceof Error ? e.message : 'Label reading failed.';
+				readDetails = e instanceof AiError ? e.details : '';
 			}
 		} finally {
 			clearTimeout(timeout);
@@ -273,7 +275,17 @@
 			</p>
 		{/if}
 	{/if}
-	{#if readError}<p class="warn" role="alert">{readError}</p>{/if}
+	{#if readError}
+		<div class="warn" role="alert">
+			<p>{readError}</p>
+			{#if readDetails}
+				<details class="details">
+					<summary>Details</summary>
+					<code>{readDetails}</code>
+				</details>
+			{/if}
+		</div>
+	{/if}
 	{#if readNote}<p class="ai-note" role="status">{readNote}</p>{/if}
 
 	{#each conflicts as c (c.key)}
@@ -552,6 +564,24 @@
 		border-left: 4px solid var(--red);
 		background: var(--surface);
 		font-size: 14px;
+	}
+	.warn p {
+		margin: 0;
+	}
+	.details {
+		margin-top: var(--space-2);
+		font-size: 12px;
+	}
+	.details summary {
+		cursor: pointer;
+		color: var(--ink-muted);
+	}
+	.details code {
+		display: block;
+		margin-top: var(--space-1);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+		color: var(--ink-muted);
 	}
 	.ai-note {
 		margin: 0;

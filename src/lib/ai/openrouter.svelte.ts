@@ -215,7 +215,9 @@ const SCHEMA = {
 export class AiError extends Error {
 	constructor(
 		message: string,
-		public kind: 'auth' | 'limit' | 'credits' | 'busy' | 'network' | 'parse' | 'other'
+		public kind: 'auth' | 'limit' | 'credits' | 'busy' | 'network' | 'parse' | 'other',
+		/** What came back, for the "Details" line under the error. */
+		public details = ''
 	) {
 		super(message);
 	}
@@ -230,31 +232,63 @@ async function toDataUrl(blob: Blob): Promise<string> {
 	});
 }
 
-/** Pulls the first JSON object out of a reply, tolerating code fences or chatter. */
-export function parseReading(text: string): Omit<LabelReading, 'model'> {
-	const match = text.match(/\{[\s\S]*\}/);
-	if (!match) throw new AiError("The AI's answer couldn't be read.", 'parse');
-	let obj: Record<string, unknown>;
-	try {
-		obj = JSON.parse(match[0]);
-	} catch {
-		throw new AiError("The AI's answer couldn't be read.", 'parse');
-	}
+type Reading = Omit<LabelReading, 'model'>;
+
+/**
+ * Pulls the label fields out of a reply. Tolerates code fences, chatter around
+ * the JSON, single quotes and trailing commas, and as a last resort picks the
+ * fields out one by one. Returns null if nothing usable is there.
+ */
+export function parseReading(text: string): Reading | null {
 	const clean = (v: unknown) =>
 		typeof v === 'string' || typeof v === 'number' ? String(v).trim() : '';
-	const out = Object.fromEntries(FIELDS.map((f) => [f, clean(obj[f])])) as Omit<
-		LabelReading,
-		'model'
-	>;
-	out.proof = out.proof.replace(/\s*proof$/i, '');
-	return out;
+	const finish = (obj: Record<string, unknown>): Reading | null => {
+		const out = Object.fromEntries(FIELDS.map((f) => [f, clean(obj[f])])) as Reading;
+		out.proof = out.proof.replace(/\s*proof$/i, '');
+		return FIELDS.some((f) => f in obj) ? out : null;
+	};
+
+	const match = text.match(/\{[\s\S]*\}/);
+	if (match) {
+		const candidates = [
+			match[0],
+			match[0].replace(/,\s*([}\]])/g, '$1'),
+			match[0].replace(/,\s*([}\]])/g, '$1').replace(/'/g, '"')
+		];
+		for (const c of candidates) {
+			try {
+				const parsed = finish(JSON.parse(c));
+				if (parsed) return parsed;
+			} catch {
+				/* try the next repair */
+			}
+		}
+	}
+	// Field by field: "name": "…" or name: …
+	const obj: Record<string, string> = {};
+	for (const f of FIELDS) {
+		const m = text.match(new RegExp(`["']?${f}["']?\\s*[:=]\\s*["']?([^"'\\n,}]*)`, 'i'));
+		if (m) obj[f] = m[1];
+	}
+	return Object.keys(obj).length ? finish(obj) : null;
 }
 
-/** Reads up to two photos (cover first) and returns what's on the label. */
-export async function readLabel(photos: Blob[], signal?: AbortSignal): Promise<LabelReading> {
-	if (!ai.key) throw new AiError('Connect OpenRouter in Settings to read labels.', 'auth');
-	const { models, structured } = await modelsToTry();
-	const images = await Promise.all(photos.slice(0, 2).map(toDataUrl));
+const ERRORS = {
+	auth: 'Your OpenRouter connection has ended. Reconnect it in Settings.',
+	credits: 'Your OpenRouter account needs credit before it can read labels.',
+	daily: 'You’ve used today’s free label reads. Fill it in yourself, or try again tomorrow.',
+	busy: 'The free AI is busy right now. Try again in a minute, or fill it in yourself.',
+	trouble: 'The AI is having trouble right now. Try again, or fill it in yourself.',
+	unreadable: "The AI's answer couldn't be read. Try again, or fill it in yourself."
+};
+
+/** One request to OpenRouter. Returns the parsed reading or throws an AiError. */
+async function ask(
+	models: string[],
+	structured: boolean,
+	images: string[],
+	signal?: AbortSignal
+): Promise<LabelReading> {
 	const body: Record<string, unknown> = {
 		models,
 		messages: [
@@ -267,7 +301,10 @@ export async function readLabel(photos: Blob[], signal?: AbortSignal): Promise<L
 			}
 		],
 		temperature: 0,
-		max_tokens: 300
+		// Room for "thinking" models: their reasoning counts against this limit.
+		max_tokens: 2000,
+		// Reading a label needs little thought; keep it quick and don't send it back.
+		reasoning: { effort: 'low', exclude: true }
 	};
 	if (structured) {
 		body.response_format = {
@@ -301,35 +338,58 @@ export async function readLabel(photos: Blob[], signal?: AbortSignal): Promise<L
 		} catch {
 			/* not JSON */
 		}
+		const info = `HTTP ${res.status}${detail ? `: ${detail}` : ''}`;
 		if (res.status === 401) {
 			disconnectOpenRouter();
-			throw new AiError('Your OpenRouter connection has ended. Reconnect it in Settings.', 'auth');
+			throw new AiError(ERRORS.auth, 'auth', info);
 		}
-		if (res.status === 402)
-			throw new AiError(
-				'Your OpenRouter account needs credit before it can read labels.',
-				'credits'
-			);
+		if (res.status === 402) throw new AiError(ERRORS.credits, 'credits', info);
 		if (res.status === 429)
-			throw new AiError(
-				/per.?day|daily/i.test(detail)
-					? 'You’ve used today’s free label reads. Fill it in yourself, or try again tomorrow.'
-					: 'The free AI is busy right now. Try again in a minute, or fill it in yourself.',
-				'limit'
-			);
-		if (res.status >= 500 || res.status === 408)
-			throw new AiError(
-				'The AI is having trouble right now. Try again, or fill it in yourself.',
-				'busy'
-			);
-		throw new AiError(detail || `Label reading failed (${res.status}).`, 'other');
+			throw new AiError(/per.?day|daily/i.test(detail) ? ERRORS.daily : ERRORS.busy, 'limit', info);
+		if (res.status >= 500 || res.status === 408) throw new AiError(ERRORS.trouble, 'busy', info);
+		throw new AiError(detail || `Label reading failed (${res.status}).`, 'other', info);
 	}
 
 	const data = (await res.json()) as {
 		model?: string;
-		choices?: { message?: { content?: string | { type: string; text?: string }[] } }[];
+		error?: { message?: string };
+		choices?: {
+			finish_reason?: string;
+			message?: { content?: string | { type: string; text?: string }[] | null; reasoning?: string };
+		}[];
 	};
-	const content = data.choices?.[0]?.message?.content;
+	const choice = data.choices?.[0];
+	const content = choice?.message?.content;
 	const text = Array.isArray(content) ? content.map((c) => c.text ?? '').join('') : (content ?? '');
-	return { ...parseReading(text), model: data.model ?? models[0] };
+	const model = data.model ?? models[0];
+	// Some models put the answer in their reasoning instead of the reply.
+	const parsed = parseReading(text) ?? parseReading(choice?.message?.reasoning ?? '');
+	if (parsed) return { ...parsed, model };
+
+	const snippet = text.trim().slice(0, 200) || '(empty reply)';
+	throw new AiError(
+		ERRORS.unreadable,
+		'parse',
+		`${model} · finish: ${choice?.finish_reason ?? data.error?.message ?? 'unknown'} · ${snippet}`
+	);
+}
+
+/** Reads up to two photos (cover first) and returns what's on the label. */
+export async function readLabel(photos: Blob[], signal?: AbortSignal): Promise<LabelReading> {
+	if (!ai.key) throw new AiError('Connect OpenRouter in Settings to read labels.', 'auth');
+	const { models, structured } = await modelsToTry();
+	const images = await Promise.all(photos.slice(0, 2).map(toDataUrl));
+	try {
+		return await ask(models, structured, images, signal);
+	} catch (e) {
+		// An unreadable answer: try once more with a different free model and plain JSON.
+		if (!(e instanceof AiError) || e.kind !== 'parse' || models[0] === FREE_ROUTER) throw e;
+		try {
+			return await ask([FREE_ROUTER], false, images, signal);
+		} catch (retry) {
+			if (retry instanceof AiError && retry.kind === 'parse')
+				retry.details = `${e.details}\nRetry: ${retry.details}`;
+			throw retry;
+		}
+	}
 }
