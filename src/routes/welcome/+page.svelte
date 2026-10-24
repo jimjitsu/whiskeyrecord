@@ -3,6 +3,13 @@
 	import { signIn } from '#lib/google/auth.svelte.ts';
 	import { connectSheet, sync, syncNow } from '#lib/sync.svelte.ts';
 	import { markOnboarded } from '#lib/onboarding.ts';
+	import { connectOpenRouter } from '#lib/ai/openrouter.svelte.ts';
+
+	function connectAi() {
+		// Onboarding is done either way; OpenRouter returns the user to home.
+		markOnboarded();
+		connectOpenRouter('/');
+	}
 
 	// Two steps, one job each: connect Google (the sheet is found or created
 	// automatically), then optionally set up AI label reading.
@@ -76,8 +83,10 @@
 			<li>Your key stays on this phone</li>
 		</ul>
 		<div class="actions">
-			<button class="btn btn-block" type="button" disabled>Connect OpenRouter (coming next)</button>
-			<button class="btn btn-primary btn-block" type="button" onclick={finish}>Continue</button>
+			<button class="btn btn-primary btn-block" type="button" onclick={connectAi}>
+				Connect OpenRouter
+			</button>
+			<button class="btn btn-block" type="button" onclick={finish}>Skip for now</button>
 		</div>
 		<p class="eyebrow step">Step 2 of 2</p>
 	{/if}

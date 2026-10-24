@@ -17,7 +17,7 @@ Working now:
 - Offline support (service worker) and installable manifest
 - Export CSV
 
-Next: OpenRouter label reading.
+- AI label reading with the user's own OpenRouter account (one-click PKCE connect, key kept on the device). Defaults to the best free model that reads images, falling back to `openrouter/free`; any vision model can be picked in Settings. Photos from the camera are read automatically; AI-filled fields are marked, and disagreements with what's already there show a pick-one card.
 
 ### How sync works
 

@@ -9,6 +9,35 @@
 		sync,
 		syncNow
 	} from '#lib/sync.svelte.ts';
+	import {
+		AUTO,
+		ai,
+		connectOpenRouter,
+		disconnectOpenRouter,
+		listVisionModels,
+		setModel,
+		type VisionModel
+	} from '#lib/ai/openrouter.svelte.ts';
+
+	let models = $state<VisionModel[]>([]);
+	let modelsError = $state('');
+	async function loadModels() {
+		try {
+			models = await listVisionModels();
+		} catch {
+			modelsError = "Couldn't load the model list. Auto still works.";
+		}
+	}
+	$effect(() => {
+		if (ai.key && !models.length && !modelsError) loadModels();
+	});
+	const freeModels = $derived(models.filter((m) => m.free));
+	const paidModels = $derived(models.filter((m) => !m.free));
+
+	function disconnectAi() {
+		if (!confirm('Disconnect OpenRouter on this device? You can reconnect any time.')) return;
+		disconnectOpenRouter();
+	}
 
 	let busy = $state(false);
 	let error = $state('');
@@ -151,7 +180,51 @@
 
 	<section>
 		<p class="eyebrow">AI label reading</p>
-		<p class="muted">Not connected. Coming soon: connect your OpenRouter account.</p>
+		{#if !ai.key}
+			<p class="muted">
+				Connect a free OpenRouter account and the app fills in name, distillery, type, age and proof
+				from your photo. Your key stays on this device.
+			</p>
+			<button
+				class="btn btn-primary btn-block"
+				type="button"
+				onclick={() => connectOpenRouter('/settings')}
+			>
+				Connect OpenRouter
+			</button>
+			<p class="muted small">
+				New to OpenRouter? You'll create a free account on the next screen.
+				<a href="https://openrouter.ai" target="_blank" rel="noopener">About OpenRouter</a>
+			</p>
+		{:else}
+			<p>Connected</p>
+			<div class="field">
+				<label class="eyebrow" for="model">Model</label>
+				<select id="model" value={ai.model} onchange={(e) => setModel(e.currentTarget.value)}>
+					<option value={AUTO}>Auto (best free model that reads images)</option>
+					{#if freeModels.length}
+						<optgroup label="Free">
+							{#each freeModels as m (m.id)}<option value={m.id}>{m.name}</option>{/each}
+						</optgroup>
+					{/if}
+					{#if paidModels.length}
+						<optgroup label="Paid (uses your OpenRouter credit)">
+							{#each paidModels as m (m.id)}<option value={m.id}>{m.name}</option>{/each}
+						</optgroup>
+					{/if}
+					{#if ai.model !== AUTO && !models.some((m) => m.id === ai.model)}
+						<option value={ai.model}>{ai.model}</option>
+					{/if}
+				</select>
+			</div>
+			<p class="muted small">
+				{modelsError ||
+					'Free models allow about 50 label reads a day. If one is busy, a different free model is used.'}
+			</p>
+			<button class="btn btn-block" type="button" onclick={disconnectAi}
+				>Disconnect OpenRouter</button
+			>
+		{/if}
 	</section>
 
 	<section>
@@ -175,6 +248,14 @@
 	}
 	.small {
 		font-size: 14px;
+	}
+	select {
+		width: 100%;
+		min-height: var(--tap);
+		padding: 0 var(--space-3);
+		border: var(--border);
+		background: var(--surface);
+		border-radius: 0;
 	}
 	.warn {
 		padding: var(--space-2) var(--space-3);
