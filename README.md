@@ -16,6 +16,7 @@ Working now:
 - Read-only record view; status and rating save instantly; Saved · Undo
 - Offline support (service worker) and installable manifest
 - Export CSV
+- Share to Whiskey Record from Android's share sheet (installed app): shared photos open a new record and are read by AI; a shared link starts a record named from the page title
 
 - AI label reading with the user's own OpenRouter account (one-click PKCE connect, key kept on the device). Defaults to the best free model that reads images, falling back to `openrouter/free`; any vision model can be picked in Settings. Photos from the camera are read automatically; AI-filled fields are marked, and disagreements with what's already there show a pick-one card.
 
