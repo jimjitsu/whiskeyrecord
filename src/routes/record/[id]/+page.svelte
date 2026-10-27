@@ -11,6 +11,7 @@
 	import Stars from '#lib/components/Stars.svelte';
 	import RatingInput from '#lib/components/RatingInput.svelte';
 	import Toast from '#lib/components/Toast.svelte';
+	import { nav } from '#lib/nav.svelte.ts';
 
 	// Saved records open read-only. Status and rating save instantly;
 	// everything else goes through Edit → Save.
@@ -85,7 +86,7 @@
 
 <AppHeader>
 	{#snippet left()}
-		<a class="btn" href="/">‹ Search</a>
+		<a class="btn" href={nav.back}>‹ Back</a>
 	{/snippet}
 	{#snippet right()}
 		{#if w}<a class="btn" href="/record/{id}/edit">Edit</a>{/if}

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { onDestroy, onMount } from 'svelte';
 	import { resizeImage } from '#lib/images.ts';
 	import { pendingPhotos } from '#lib/draft.svelte.ts';
@@ -69,7 +70,9 @@
 
 	function done() {
 		pendingPhotos.blobs = shots.map((s) => s.blob);
-		goto('/record/new');
+		// A search that found nothing passes its text along as a starting name.
+		const name = page.url.searchParams.get('name');
+		goto(name ? `/record/new?name=${encodeURIComponent(name)}` : '/record/new');
 	}
 </script>
 

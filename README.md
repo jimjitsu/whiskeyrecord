@@ -10,7 +10,7 @@ Working now:
 - A second device finds the existing sheet automatically
 - Edits made directly in the sheet sync back, including rows typed in by hand
 
-- Search home screen with typo-tolerant matching
+- Home with two paths: typo-tolerant search ("Have I had this?") or add a whiskey; the full list lives on a My whiskeys screen with filters and sorting
 - In-app camera with gallery picker and multiple photos (first is the cover)
 - New / edit form with draft autosave, duplicate check, status, 1–5 rating with 0.1 slider
 - Read-only record view; status and rating save instantly; Saved · Undo
