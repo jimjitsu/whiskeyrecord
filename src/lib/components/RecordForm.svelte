@@ -104,14 +104,23 @@
 	}
 
 	// --- AI label reading -------------------------------------------------
-	type AiField = 'name' | 'distillery' | 'type' | 'age' | 'proof';
+	type AiField = Exclude<keyof LabelReading, 'model'>;
 	const AI_FIELDS: { key: AiField; label: string }[] = [
 		{ key: 'name', label: 'Name' },
 		{ key: 'distillery', label: 'Distillery' },
 		{ key: 'type', label: 'Type' },
 		{ key: 'age', label: 'Age' },
-		{ key: 'proof', label: 'Proof' }
+		{ key: 'proof', label: 'Proof' },
+		{ key: 'cask', label: 'Cask / finish' },
+		{ key: 'mashBill', label: 'Mash bill' },
+		{ key: 'batch', label: 'Batch' },
+		{ key: 'bottleSize', label: 'Bottle size' },
+		{ key: 'released', label: 'Released' },
+		{ key: 'region', label: 'Region' }
 	];
+	const BOTTLE_AI: AiField[] = ['cask', 'mashBill', 'batch', 'bottleSize', 'released', 'region'];
+	/** Opens Bottle details when the AI filled something in there, so it gets checked. */
+	let bottleOpen = $state(false);
 	let reading = $state(false);
 	let readError = $state('');
 	let readDetails = $state('');
@@ -178,6 +187,7 @@
 			}
 		}
 		conflicts = next;
+		if (BOTTLE_AI.some((k) => aiFilled[k])) bottleOpen = true;
 		readNote =
 			filled || next.length
 				? `Read by ${r.model.replace(/:free$/, '')}. Check what it filled in.`
@@ -434,7 +444,7 @@
 		</div>
 	</details>
 
-	<details class="more">
+	<details class="more" bind:open={bottleOpen}>
 		<summary
 			>Bottle details{@render count([
 				w.cask,
@@ -446,43 +456,15 @@
 			])}</summary
 		>
 		<div class="more-body">
-			<div class="field">
-				<label class="eyebrow" for="cask">Cask / finish</label>
-				<input id="cask" autocomplete="off" bind:value={w.cask} placeholder="Port cask finish" />
-			</div>
-			<div class="field">
-				<label class="eyebrow" for="mashBill">Mash bill</label>
-				<input
-					id="mashBill"
-					autocomplete="off"
-					bind:value={w.mashBill}
-					placeholder="75% corn, 13% rye, 12% malted barley"
-				/>
+			{@render detail('cask', 'Cask / finish', 'Port cask finish')}
+			{@render detail('mashBill', 'Mash bill', '75% corn, 13% rye, 12% malted barley')}
+			<div class="pair">
+				{@render detail('batch', 'Batch', '')}
+				{@render detail('bottleSize', 'Bottle size', '750 ml')}
 			</div>
 			<div class="pair">
-				<div class="field">
-					<label class="eyebrow" for="batch">Batch</label>
-					<input id="batch" autocomplete="off" bind:value={w.batch} />
-				</div>
-				<div class="field">
-					<label class="eyebrow" for="bottleSize">Bottle size</label>
-					<input
-						id="bottleSize"
-						autocomplete="off"
-						bind:value={w.bottleSize}
-						placeholder="750 ml"
-					/>
-				</div>
-			</div>
-			<div class="pair">
-				<div class="field">
-					<label class="eyebrow" for="released">Released</label>
-					<input id="released" inputmode="numeric" autocomplete="off" bind:value={w.released} />
-				</div>
-				<div class="field">
-					<label class="eyebrow" for="region">Region</label>
-					<input id="region" autocomplete="off" bind:value={w.region} placeholder="Kentucky, USA" />
-				</div>
+				{@render detail('released', 'Released', '2024')}
+				{@render detail('region', 'Region', 'Kentucky, USA')}
 			</div>
 		</div>
 	</details>
@@ -584,6 +566,27 @@
 		<p class="muted">Draft autosaved on this phone</p>
 	</div>
 </form>
+
+{#snippet detail(
+	key: 'cask' | 'mashBill' | 'batch' | 'bottleSize' | 'released' | 'region',
+	label: string,
+	placeholder: string
+)}
+	<div class="field">
+		<label class="eyebrow" for={key}
+			>{label}
+			{#if aiFilled[key]}<span class="filled">Filled by AI · check it</span>{/if}</label
+		>
+		<input
+			id={key}
+			autocomplete="off"
+			class:ai={aiFilled[key]}
+			oninput={() => edited(key)}
+			bind:value={w[key]}
+			{placeholder}
+		/>
+	</div>
+{/snippet}
 
 {#snippet count(values: unknown[], noun = 'filled')}
 	{@const n = values.filter(Boolean).length}

@@ -188,20 +188,45 @@ export interface LabelReading {
 	type: string;
 	age: string;
 	proof: string;
+	// Bottle details, when the label shows them.
+	cask: string;
+	mashBill: string;
+	batch: string;
+	bottleSize: string;
+	released: string;
+	region: string;
 	/** The model that answered, for the "read by" note. */
 	model: string;
 }
 
-const FIELDS = ['name', 'distillery', 'type', 'age', 'proof'] as const;
+const FIELDS = [
+	'name',
+	'distillery',
+	'type',
+	'age',
+	'proof',
+	'cask',
+	'mashBill',
+	'batch',
+	'bottleSize',
+	'released',
+	'region'
+] as const;
 
 const PROMPT = `You read whiskey bottle labels. Look at the photo(s) and reply with ONLY a JSON object, no other text:
-{"name": "", "distillery": "", "type": "", "age": "", "proof": ""}
+{"name": "", "distillery": "", "type": "", "age": "", "proof": "", "cask": "", "mashBill": "", "batch": "", "bottleSize": "", "released": "", "region": ""}
 Rules:
 - name: the product name as a person would say it, e.g. "Eagle Rare 10 Year", "Lagavulin 16". Leave out words like "Kentucky Straight Bourbon Whiskey" unless they are the name.
 - distillery: who made it, e.g. "Buffalo Trace". Use the producer, not the parent company, if both appear.
 - type: a short style, e.g. "Bourbon", "Rye", "Scotch", "Irish", "Japanese", "Tennessee".
 - age: like "10 yr". Blank if no age statement.
 - proof: a number only, e.g. "90". If only ABV is shown, proof = ABV x 2 (45% -> "90").
+- cask: the cask type or finish if stated, e.g. "Port cask finish", "Sherry cask", "New charred oak".
+- mashBill: the grain recipe if printed, e.g. "75% corn, 13% rye, 12% malted barley".
+- batch: a batch, barrel or cask number if printed, e.g. "Batch 23B", "Barrel 4512".
+- bottleSize: the volume, e.g. "750 ml", "70 cl", "1 L".
+- released: a release, bottling or vintage year if printed, e.g. "2024".
+- region: where it's from as printed, e.g. "Kentucky, USA", "Islay, Scotland". Use only what the label says.
 - If something isn't readable, use "". Never guess a value that isn't on the label.
 - If the photo isn't a whiskey bottle, return all fields as "".`;
 
