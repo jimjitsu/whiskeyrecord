@@ -1,6 +1,15 @@
 import Dexie, { type EntityTable } from 'dexie';
 
 export type Status = 'tasted' | 'want';
+/** Whether you own a bottle, and what state it's in. '' = not filled in. */
+export type BottleState = '' | 'none' | 'unopened' | 'open' | 'finished';
+/** Rough level of an open bottle. */
+export const LEVELS = [
+	{ value: 0.75, label: '3/4' },
+	{ value: 0.5, label: '1/2' },
+	{ value: 0.25, label: '1/4' },
+	{ value: 0.1, label: 'Low' }
+] as const;
 
 /** One row per whiskey; mirrors the columns of the user's Google Sheet. */
 export interface Whiskey {
@@ -17,6 +26,23 @@ export interface Whiskey {
 	tags: string[];
 	/** Price paid, as typed. */
 	pricePaid: string;
+
+	// Optional details (added Oct 2026). Empty strings when not filled in.
+	tastedOn: string;
+	whereTasted: string;
+	cask: string;
+	mashBill: string;
+	batch: string;
+	bottleSize: string;
+	released: string;
+	region: string;
+	bottle: BottleState;
+	/** Level of an open bottle (see LEVELS); null when not open or not set. */
+	level: number | null;
+	/** Where it was bought, or seen for sale while still Want to try. */
+	boughtAt: string;
+	retail: string;
+	buyAgain: '' | 'yes' | 'no';
 	/** Photo ids in display order; the first is the cover. */
 	photoIds: string[];
 	createdAt: string;
@@ -54,10 +80,51 @@ class WhiskeyDB extends Dexie {
 			photos: 'id, driveFileId',
 			deletions: 'id'
 		});
+		// New optional detail fields: fill them in on existing rows.
+		this.version(3)
+			.stores({})
+			.upgrade((tx) =>
+				tx
+					.table('whiskeys')
+					.toCollection()
+					.modify((w: Whiskey) => {
+						Object.assign(w, { ...DETAIL_DEFAULTS, ...w });
+					})
+			);
 	}
 }
 
+export const DETAIL_DEFAULTS = {
+	tastedOn: '',
+	whereTasted: '',
+	cask: '',
+	mashBill: '',
+	batch: '',
+	bottleSize: '',
+	released: '',
+	region: '',
+	bottle: '',
+	level: null,
+	boughtAt: '',
+	retail: '',
+	buyAgain: ''
+} satisfies Partial<Whiskey>;
+
 export const db = new WhiskeyDB();
+
+/** Bought before and would buy again, and the bottle is low or gone. */
+export function isRunningLow(w: Whiskey): boolean {
+	if (w.buyAgain !== 'yes') return false;
+	return w.bottle === 'finished' || (w.bottle === 'open' && w.level != null && w.level <= 0.25);
+}
+
+/** "Open · 1/4", "Unopened", … as shown in the sheet and on the record. */
+export function bottleLabel(w: Pick<Whiskey, 'bottle' | 'level'>): string {
+	if (!w.bottle) return '';
+	const base = { none: 'None', unopened: 'Unopened', open: 'Open', finished: 'Finished' }[w.bottle];
+	const lvl = w.bottle === 'open' && LEVELS.find((l) => l.value === w.level);
+	return lvl ? `${base} · ${lvl.label}` : base;
+}
 
 // Lets the sync engine know something changed on this device.
 const listeners = new Set<() => void>();
@@ -87,6 +154,7 @@ export function emptyWhiskey(): Whiskey {
 		notes: '',
 		tags: [],
 		pricePaid: '',
+		...DETAIL_DEFAULTS,
 		photoIds: [],
 		createdAt: now,
 		updatedAt: now,

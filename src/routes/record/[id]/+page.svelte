@@ -3,7 +3,15 @@
 	import { goto } from '$app/navigation';
 	import { liveQuery } from 'dexie';
 	import { onDestroy, onMount } from 'svelte';
-	import { db, deleteWhiskey, patchWhiskey, type Status, type Whiskey } from '#lib/db.ts';
+	import {
+		db,
+		deleteWhiskey,
+		isRunningLow,
+		patchWhiskey,
+		type BottleState,
+		type Status,
+		type Whiskey
+	} from '#lib/db.ts';
 	import { createPhotoUrls } from '#lib/photoUrl.svelte.ts';
 	import { applyUndo, finalizeUndo, takeUndo, type UndoEntry } from '#lib/undo.ts';
 	import AppHeader from '#lib/components/AppHeader.svelte';
@@ -11,10 +19,12 @@
 	import Stars from '#lib/components/Stars.svelte';
 	import RatingInput from '#lib/components/RatingInput.svelte';
 	import Toast from '#lib/components/Toast.svelte';
+	import BottleControl from '#lib/components/BottleControl.svelte';
+	import PhotoViewer from '#lib/components/PhotoViewer.svelte';
 	import { nav } from '#lib/nav.svelte.ts';
 
-	// Saved records open read-only. Status and rating save instantly;
-	// everything else goes through Edit → Save.
+	// Saved records open read-only. Status, rating and your bottle save
+	// instantly; everything else goes through Edit → Save.
 	const id = page.params.id!;
 	let w = $state<Whiskey | undefined>();
 	let loaded = $state(false);
@@ -30,11 +40,7 @@
 	});
 	onDestroy(photos.release);
 
-	let slide = $state(0);
-	function onScroll(e: Event & { currentTarget: HTMLElement }) {
-		const el = e.currentTarget;
-		slide = Math.round(el.scrollLeft / el.clientWidth);
-	}
+	let viewing = $state(false);
 
 	// "Saved · Undo"
 	let undo = $state<UndoEntry | null>(null);
@@ -59,6 +65,9 @@
 	function setStatus(s: Status) {
 		patchWhiskey(id, { status: s });
 	}
+	function setBottle(bottle: BottleState, level: number | null) {
+		patchWhiskey(id, { bottle, level });
+	}
 
 	// Rating popup
 	let ratingDialog = $state<HTMLDialogElement>();
@@ -78,10 +87,53 @@
 		goto('/', { replaceState: true });
 	}
 
-	const meta = $derived(
-		w ? [w.distillery, w.age, w.proof && `${w.proof} proof`].filter(Boolean).join(' · ') : ''
+	const facts = $derived(
+		w ? [w.age, w.proof && `${w.proof} proof`].filter(Boolean).join(' · ') : ''
 	);
-	const fmt = (iso: string) => new Date(iso).toLocaleDateString();
+	const day = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
+	const fmt = (iso: string) => {
+		// Plain dates (YYYY-MM-DD) are read as local days, not UTC midnight.
+		const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T12:00` : iso);
+		return isNaN(d.getTime()) ? iso : day.format(d);
+	};
+	const money = (v: string) => (v && /^\d/.test(v) ? `$${v}` : v);
+
+	// Each section lists only what's filled in, and hides when there's nothing.
+	type Row = [label: string, value: string];
+	const keep = (rows: Row[]) => rows.filter(([, v]) => v);
+	const whenWhere = $derived(
+		w
+			? keep([
+					['Tasted on', w.tastedOn && fmt(w.tastedOn)],
+					['Where', w.whereTasted]
+				])
+			: []
+	);
+	const bottleRows = $derived(
+		w
+			? keep([
+					['Cask / finish', w.cask],
+					['Mash bill', w.mashBill],
+					['Batch', w.batch],
+					['Bottle size', w.bottleSize],
+					['Released', w.released],
+					['Region', w.region]
+				])
+			: []
+	);
+	const owned = $derived(!!w && ['unopened', 'open', 'finished'].includes(w.bottle));
+	const buyingRows = $derived(
+		w
+			? keep([
+					[owned || w.status === 'tasted' ? 'Bought at' : 'Seen at', w.boughtAt],
+					['Paid', money(w.pricePaid)],
+					['Retail', money(w.retail)],
+					['Buy again?', w.buyAgain === 'yes' ? 'Yes' : w.buyAgain === 'no' ? 'No' : '']
+				])
+			: []
+	);
+	// Nothing beyond the basics yet: one prompt to add the rest.
+	const sparse = $derived(!!w && !bottleRows.length && !whenWhere.length);
 </script>
 
 <AppHeader>
@@ -94,70 +146,123 @@
 </AppHeader>
 
 {#if w}
-	{#if w.photoIds.length}
-		<div class="gallery-wrap">
-			<div class="gallery" onscroll={onScroll} aria-label="Photos">
-				{#each w.photoIds as pid (pid)}
-					<div class="slide">
-						{#if photos.urls[pid]}<img src={photos.urls[pid]} alt="Bottle of {w.name}" />{/if}
-					</div>
-				{/each}
-			</div>
-			{#if w.photoIds.length > 1}<span class="count">{slide + 1} / {w.photoIds.length}</span>{/if}
-		</div>
-	{/if}
-
 	<main>
-		<div class="heading">
-			<h1>{w.name}</h1>
-			{#if meta}<p class="muted">{meta}</p>{/if}
-			{#if w.type}<span class="chip">{w.type}</span>{/if}
+		<div class="top">
+			<div class="info">
+				{#if w.type}<span class="chip">{w.type}</span>{/if}
+				<h1>{w.name}</h1>
+				{#if w.distillery || facts}
+					<p class="meta muted">
+						{#if w.distillery}{w.distillery}<br />{/if}{facts}
+					</p>
+				{/if}
+				{#if w.status === 'tasted'}
+					<button class="rating" type="button" onclick={openRating} aria-label="Change rating">
+						<Stars value={w.rating} size={18} />
+						{#if w.rating != null}<strong>{w.rating.toFixed(1)}</strong>{:else}<span class="muted"
+								>Tap to rate</span
+							>{/if}
+					</button>
+				{/if}
+			</div>
+			{#if w.photoIds.length}
+				<button
+					class="thumb"
+					type="button"
+					onclick={() => (viewing = true)}
+					aria-label="Open photos ({w.photoIds.length})"
+				>
+					{#if photos.urls[w.photoIds[0]]}<img
+							src={photos.urls[w.photoIds[0]]}
+							alt="Bottle of {w.name}"
+						/>{/if}
+					<span class="badge" aria-hidden="true">
+						<svg viewBox="0 0 24 24" width="12" height="12"
+							><path
+								d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+							/></svg
+						>{#if w.photoIds.length > 1}1/{w.photoIds.length}{/if}
+					</span>
+				</button>
+			{:else}
+				<a class="thumb empty" href="/record/{id}/edit">+ Photo</a>
+			{/if}
 		</div>
+
+		<StatusToggle value={w.status} onchange={setStatus} />
 
 		<div class="block">
-			<span class="eyebrow">Status</span>
-			<StatusToggle value={w.status} onchange={setStatus} />
+			<p class="eyebrow split">
+				<span>Your bottle</span>
+				{#if isRunningLow(w)}<span class="low">Running low</span>{/if}
+			</p>
+			<BottleControl bottle={w.bottle} level={w.level} onchange={setBottle} />
 		</div>
 
 		{#if w.status === 'tasted'}
-			<div class="block">
-				<span class="eyebrow">Rating</span>
-				<button class="rating" type="button" onclick={openRating}>
-					{#if w.rating != null}
-						<strong>{w.rating.toFixed(1)}</strong>
-					{/if}
-					<Stars value={w.rating} size={28} />
-					{#if w.rating == null}<span class="muted">Tap to rate</span>{/if}
-				</button>
-			</div>
-
-			<div class="block">
-				<span class="eyebrow">Tasting notes</span>
+			<section>
+				<h2 class="eyebrow">Tasting</h2>
 				{#if w.notes}
 					<p class="notes">{w.notes}</p>
 				{:else}
 					<a href="/record/{id}/edit" class="muted">Add tasting notes</a>
 				{/if}
-			</div>
+				{#if whenWhere.length}{@render list(whenWhere)}{/if}
+			</section>
+		{:else}
+			<p class="muted small">Rating and tasting notes appear once you mark it tasted.</p>
+			{#if whenWhere.length}<section>
+					<h2 class="eyebrow">When &amp; where</h2>
+					{@render list(whenWhere)}
+				</section>{/if}
 		{/if}
 
-		<details class="more">
-			<summary>More info</summary>
-			<dl>
-				<dt class="eyebrow">Type</dt>
-				<dd>{w.type || '—'}</dd>
-				<dt class="eyebrow">Price paid</dt>
-				<dd>{w.pricePaid || '—'}</dd>
-				<dt class="eyebrow">Tags</dt>
-				<dd>{w.tags.length ? w.tags.join(', ') : '—'}</dd>
-				<dt class="eyebrow">Added</dt>
-				<dd>{fmt(w.createdAt)}</dd>
-				<dt class="eyebrow">Updated</dt>
-				<dd>{fmt(w.updatedAt)}</dd>
-			</dl>
-			<button class="btn btn-block delete" type="button" onclick={remove}>Delete record</button>
-		</details>
+		{#if bottleRows.length}
+			<section>
+				<h2 class="eyebrow">Bottle</h2>
+				{@render list(bottleRows)}
+			</section>
+		{/if}
+
+		{#if buyingRows.length}
+			<section>
+				<h2 class="eyebrow">Buying</h2>
+				{@render list(buyingRows)}
+			</section>
+		{/if}
+
+		{#if w.tags.length}
+			<section>
+				<h2 class="eyebrow">Tags</h2>
+				<p class="tags">
+					{#each w.tags as t (t)}<span>{t}</span>{/each}
+				</p>
+			</section>
+		{/if}
+
+		{#if sparse}
+			<a class="add-more" href="/record/{id}/edit"
+				><span>Add bottle details and more</span><strong>Edit ›</strong></a
+			>
+		{/if}
+
+		<p class="foot muted">
+			Added {fmt(w.createdAt)}{#if w.updatedAt.slice(0, 10) !== w.createdAt.slice(0, 10)}
+				· Updated {fmt(w.updatedAt)}{/if}
+		</p>
+		<button class="btn btn-block delete" type="button" onclick={remove}>Delete record</button>
 	</main>
+
+	{#if viewing}
+		<PhotoViewer
+			urls={w.photoIds.map((pid) => photos.urls[pid])}
+			name={w.name}
+			onclose={() => (viewing = false)}
+		/>
+	{/if}
 
 	<dialog bind:this={ratingDialog} class="sheet" aria-label="Rate {w.name}">
 		<form
@@ -176,7 +281,7 @@
 		</form>
 	</dialog>
 {:else if loaded}
-	<main><p>That record wasn't found. <a href="/">Back to search</a></p></main>
+	<main><p>That record wasn't found. <a href="/">Back to home</a></p></main>
 {/if}
 
 {#if undo}
@@ -188,51 +293,39 @@
 	/>
 {/if}
 
+{#snippet list(rows: Row[])}
+	<dl>
+		{#each rows as [label, value] (label)}<dt>{label}</dt>
+			<dd>{value}</dd>{/each}
+	</dl>
+{/snippet}
+
 <style>
-	.gallery-wrap {
-		position: relative;
-	}
-	.gallery {
-		display: flex;
-		overflow-x: auto;
-		scroll-snap-type: x mandatory;
-		scrollbar-width: none;
-		border-block: var(--border);
-		background: var(--surface);
-	}
-	.slide {
-		flex: none;
-		width: 100%;
-		aspect-ratio: 4 / 3;
-		scroll-snap-align: start;
-	}
-	.slide img {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-		display: block;
-	}
-	.count {
-		position: absolute;
-		right: var(--gutter);
-		bottom: var(--space-3);
-		padding: 2px 8px;
-		background: var(--ink);
-		color: var(--base);
-		font-size: 12px;
-	}
 	main {
 		display: grid;
 		gap: var(--space-5);
-		padding: var(--space-4) var(--gutter) 120px;
+		padding: var(--space-2) var(--gutter) var(--space-6);
 	}
-	.heading {
+	.top {
 		display: grid;
-		gap: var(--space-2);
-		justify-items: start;
+		grid-template-columns: 1fr 128px;
+		gap: var(--space-4);
+		align-items: start;
 	}
-	.heading p {
+	.info {
+		display: grid;
+		gap: 6px;
+		justify-items: start;
+		min-width: 0;
+	}
+	h1 {
+		font-size: 26px;
+		overflow-wrap: anywhere;
+	}
+	.meta {
 		margin: 0;
+		font-size: 14px;
+		line-height: 20px;
 	}
 	.chip {
 		padding: 2px 10px;
@@ -241,55 +334,127 @@
 		color: #1a1a1a;
 		font-size: 12px;
 	}
-	.block {
-		display: grid;
-		gap: var(--space-2);
-	}
 	.rating {
 		display: flex;
 		align-items: center;
-		gap: var(--space-3);
-		min-height: var(--tap);
+		gap: var(--space-2);
+		min-height: 40px;
 		padding: 0;
 		border: 0;
 		background: none;
 		cursor: pointer;
-		text-align: left;
 	}
 	.rating strong {
-		font-size: 28px;
+		font-size: 22px;
+	}
+	.thumb {
+		position: relative;
+		display: grid;
+		place-items: center;
+		width: 128px;
+		aspect-ratio: 3 / 4;
+		padding: 0;
+		border: var(--border);
+		background: var(--surface);
+		overflow: hidden;
+		cursor: pointer;
+		text-decoration: none;
+		font-size: 14px;
+	}
+	.thumb.empty {
+		border-style: dashed;
+	}
+	.thumb img {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+	.badge {
+		position: absolute;
+		right: 6px;
+		bottom: 6px;
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		padding: 3px 7px;
+		background: var(--ink);
+		color: var(--base);
+		font-size: 12px;
+		line-height: 16px;
+	}
+	.block {
+		display: grid;
+		gap: var(--space-2);
+	}
+	.split {
+		display: flex;
+		justify-content: space-between;
+	}
+	.low {
+		color: var(--red);
+	}
+	section {
+		display: grid;
+		gap: 10px;
+		padding-top: var(--space-4);
+		border-top: var(--border);
+	}
+	h2 {
+		margin: 0;
+		font-family: var(--font-label);
+		font-size: 12px;
 	}
 	.notes {
 		margin: 0;
+		font-size: 15px;
 		white-space: pre-wrap;
 	}
-	.more {
-		border: var(--border);
-		background: var(--surface);
-	}
-	.more summary {
-		min-height: var(--tap);
-		display: flex;
-		align-items: center;
-		padding: 0 var(--space-3);
-		font-weight: 700;
-		cursor: pointer;
+	.small {
+		margin: 0;
+		font-size: 14px;
 	}
 	dl {
 		display: grid;
-		grid-template-columns: auto 1fr;
-		gap: var(--space-2) var(--space-4);
+		grid-template-columns: 116px 1fr;
+		gap: var(--space-2) var(--space-3);
 		margin: 0;
-		padding: 0 var(--space-3) var(--space-4);
-		align-items: baseline;
+		font-size: 14px;
+		line-height: 20px;
+	}
+	dt {
+		color: var(--ink-muted);
 	}
 	dd {
 		margin: 0;
 		overflow-wrap: anywhere;
 	}
+	.tags {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+		margin: 0;
+	}
+	.tags span {
+		padding: 2px 10px;
+		border: var(--border);
+		font-size: 12px;
+	}
+	.add-more {
+		display: flex;
+		justify-content: space-between;
+		padding: var(--space-3);
+		border: var(--border);
+		border-style: dashed;
+		font-size: 14px;
+		text-decoration: none;
+	}
+	.foot {
+		margin: 0;
+		font-size: 12px;
+	}
 	.delete {
-		width: calc(100% - 2 * var(--space-3));
-		margin: 0 var(--space-3) var(--space-3);
 		color: var(--red);
 		border-color: var(--red);
 	}

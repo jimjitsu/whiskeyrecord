@@ -216,8 +216,9 @@ async function runOnce() {
 async function reconcile(token: string, config: SheetConfig) {
 	const values = await readRows(token, config.sheetId);
 	const header = values[0] ?? [];
-	if (header.length === 0) {
-		// Empty tab (e.g. cleared by hand): put the header back.
+	if (header.length < HEADERS.length) {
+		// Empty tab (e.g. cleared by hand), or a sheet made before the detail
+		// columns existed: (re)write the header row.
 		await updateRows(token, config.sheetId, [
 			{ range: `${TAB}!A1:${LAST_COL}1`, values: [[...HEADERS]] }
 		]);

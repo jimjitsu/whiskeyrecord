@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { liveQuery } from 'dexie';
 	import { onDestroy } from 'svelte';
-	import { db, type Whiskey } from '#lib/db.ts';
+	import { db, isRunningLow, type Whiskey } from '#lib/db.ts';
 	import { createSearch } from '#lib/search.ts';
 	import { createPhotoUrls } from '#lib/photoUrl.svelte.ts';
 	import AppHeader from '#lib/components/AppHeader.svelte';
@@ -33,6 +33,7 @@
 	const searching = $derived(query.trim().length > 0);
 	const results = $derived(searching ? search(query) : []);
 	const count = $derived(whiskeys.length);
+	const low = $derived(whiskeys.filter(isRunningLow).length);
 	const plural = (n: number) => `${n} whiskey${n === 1 ? '' : 's'}`;
 
 	const photos = createPhotoUrls();
@@ -165,7 +166,9 @@
 		{#if count}
 			<a class="browse" href="/whiskeys">
 				<strong>My whiskeys</strong>
-				<span class="muted">{count} ›</span>
+				<span class="muted"
+					>{#if low}<span class="low">{low} low</span>{/if}{count} ›</span
+				>
 			</a>
 		{/if}
 	{/if}
@@ -305,5 +308,10 @@
 	}
 	.browse span {
 		font-size: 14px;
+	}
+	.low {
+		margin-right: var(--space-3);
+		color: var(--red);
+		font-weight: 700;
 	}
 </style>

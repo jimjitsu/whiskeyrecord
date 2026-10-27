@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { onDestroy, onMount, untrack } from 'svelte';
-	import { addPhotos, db, saveWhiskey, usedTypes, type Whiskey } from '#lib/db.ts';
+	import { DETAIL_DEFAULTS, addPhotos, db, saveWhiskey, usedTypes, type Whiskey } from '#lib/db.ts';
 	import { findLikelyDuplicates } from '#lib/search.ts';
 	import { resizeImage } from '#lib/images.ts';
 	import { createPhotoUrls } from '#lib/photoUrl.svelte.ts';
@@ -10,6 +10,7 @@
 	import AppHeader from './AppHeader.svelte';
 	import StatusToggle from './StatusToggle.svelte';
 	import RatingInput from './RatingInput.svelte';
+	import BottleControl from './BottleControl.svelte';
 
 	let {
 		initial,
@@ -29,7 +30,9 @@
 
 	// Draft autosave: every change is kept on the phone until Save or Cancel.
 	// The form edits a copy; later changes to `initial` are intentionally ignored.
-	let w = $state<Whiskey>(untrack(() => structuredClone($state.snapshot(initial))));
+	let w = $state<Whiskey>(
+		untrack(() => ({ ...DETAIL_DEFAULTS, ...structuredClone($state.snapshot(initial)) }))
+	);
 	let tagsText = $state(untrack(() => initial.tags.join(', ')));
 	let restored = $state(false);
 	let types = $state<string[]>([]);
@@ -42,7 +45,8 @@
 			if (raw) {
 				const d = JSON.parse(raw) as { w: Whiskey; tagsText: string };
 				if (d.w?.id === w.id) {
-					w = d.w;
+					// Drafts saved before the detail fields existed lack them.
+					w = { ...DETAIL_DEFAULTS, ...d.w };
 					tagsText = d.tagsText;
 					restored = true;
 				}
@@ -410,18 +414,151 @@
 	{/if}
 
 	<details class="more">
-		<summary>More info</summary>
+		<summary>When &amp; where{@render count([w.tastedOn, w.whereTasted])}</summary>
+		<div class="more-body">
+			<div class="pair">
+				<div class="field">
+					<label class="eyebrow" for="tastedOn">Tasted on</label>
+					<input id="tastedOn" type="date" bind:value={w.tastedOn} />
+				</div>
+				<div class="field">
+					<label class="eyebrow" for="whereTasted">Where</label>
+					<input
+						id="whereTasted"
+						autocomplete="off"
+						bind:value={w.whereTasted}
+						placeholder="A bar, a friend's"
+					/>
+				</div>
+			</div>
+		</div>
+	</details>
+
+	<details class="more">
+		<summary
+			>Bottle details{@render count([
+				w.cask,
+				w.mashBill,
+				w.batch,
+				w.bottleSize,
+				w.released,
+				w.region
+			])}</summary
+		>
 		<div class="more-body">
 			<div class="field">
-				<label class="eyebrow" for="price">Price paid</label>
+				<label class="eyebrow" for="cask">Cask / finish</label>
+				<input id="cask" autocomplete="off" bind:value={w.cask} placeholder="Port cask finish" />
+			</div>
+			<div class="field">
+				<label class="eyebrow" for="mashBill">Mash bill</label>
 				<input
-					id="price"
-					inputmode="decimal"
+					id="mashBill"
 					autocomplete="off"
-					bind:value={w.pricePaid}
-					placeholder="39.99"
+					bind:value={w.mashBill}
+					placeholder="75% corn, 13% rye, 12% malted barley"
 				/>
 			</div>
+			<div class="pair">
+				<div class="field">
+					<label class="eyebrow" for="batch">Batch</label>
+					<input id="batch" autocomplete="off" bind:value={w.batch} />
+				</div>
+				<div class="field">
+					<label class="eyebrow" for="bottleSize">Bottle size</label>
+					<input
+						id="bottleSize"
+						autocomplete="off"
+						bind:value={w.bottleSize}
+						placeholder="750 ml"
+					/>
+				</div>
+			</div>
+			<div class="pair">
+				<div class="field">
+					<label class="eyebrow" for="released">Released</label>
+					<input id="released" inputmode="numeric" autocomplete="off" bind:value={w.released} />
+				</div>
+				<div class="field">
+					<label class="eyebrow" for="region">Region</label>
+					<input id="region" autocomplete="off" bind:value={w.region} placeholder="Kentucky, USA" />
+				</div>
+			</div>
+		</div>
+	</details>
+
+	<details class="more">
+		<summary
+			>Buying &amp; owning{@render count([
+				w.bottle,
+				w.boughtAt,
+				w.pricePaid,
+				w.retail,
+				w.buyAgain
+			])}</summary
+		>
+		<div class="more-body">
+			<div class="field">
+				<span class="eyebrow">Your bottle</span>
+				<BottleControl
+					bottle={w.bottle}
+					level={w.level}
+					onchange={(b, l) => {
+						w.bottle = b;
+						w.level = l;
+					}}
+				/>
+			</div>
+			<div class="field">
+				<label class="eyebrow" for="boughtAt">Bought at</label>
+				<input id="boughtAt" autocomplete="off" bind:value={w.boughtAt} />
+			</div>
+			<div class="pair">
+				<div class="field">
+					<label class="eyebrow" for="price">Paid</label>
+					<input
+						id="price"
+						inputmode="decimal"
+						autocomplete="off"
+						bind:value={w.pricePaid}
+						placeholder="39.99"
+					/>
+				</div>
+				<div class="field">
+					<label class="eyebrow" for="retail">Retail</label>
+					<input
+						id="retail"
+						inputmode="decimal"
+						autocomplete="off"
+						bind:value={w.retail}
+						placeholder="45.00"
+					/>
+				</div>
+			</div>
+			<div class="field">
+				<span class="eyebrow">Buy again?</span>
+				<div class="yesno" role="group" aria-label="Buy again?">
+					{#each [['yes', 'Yes'], ['no', 'No']] as const as [value, label] (value)}
+						<button
+							type="button"
+							class:on={w.buyAgain === value}
+							aria-pressed={w.buyAgain === value}
+							onclick={() => (w.buyAgain = w.buyAgain === value ? '' : value)}>{label}</button
+						>
+					{/each}
+				</div>
+			</div>
+		</div>
+	</details>
+
+	<details class="more">
+		<summary
+			>Tags{@render count(
+				tagsText.split(',').filter((t) => t.trim()),
+				'tag'
+			)}</summary
+		>
+		<div class="more-body">
 			<div class="field">
 				<label class="eyebrow" for="tags">Tags</label>
 				<input id="tags" autocomplete="off" bind:value={tagsText} placeholder="gift, bar pour" />
@@ -447,6 +584,14 @@
 		<p class="muted">Draft autosaved on this phone</p>
 	</div>
 </form>
+
+{#snippet count(values: unknown[], noun = 'filled')}
+	{@const n = values.filter(Boolean).length}
+	{#if n}<span class="count"
+			>{n}
+			{noun === 'filled' ? 'filled' : `${noun}${n === 1 ? '' : 's'}`}</span
+		>{/if}
+{/snippet}
 
 <style>
 	.form {
@@ -539,12 +684,51 @@
 		background: var(--surface);
 	}
 	.more summary {
-		min-height: var(--tap);
+		min-height: 52px;
 		display: flex;
 		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
 		padding: 0 var(--space-3);
 		font-weight: 700;
 		cursor: pointer;
+		list-style: none;
+	}
+	.more summary::-webkit-details-marker {
+		display: none;
+	}
+	.more summary::after {
+		content: '›';
+		font-weight: 400;
+		transition: transform 0.15s;
+	}
+	.more[open] summary::after {
+		transform: rotate(90deg);
+	}
+	.count {
+		margin-left: auto;
+		font-weight: 400;
+		font-size: 13px;
+		color: var(--ink-muted);
+	}
+	.yesno {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		border: var(--border);
+	}
+	.yesno button {
+		min-height: var(--tap);
+		border: 0;
+		background: var(--base);
+		cursor: pointer;
+	}
+	.yesno button + button {
+		border-left: var(--border);
+	}
+	.yesno .on {
+		background: var(--ink);
+		color: var(--base);
+		font-weight: 700;
 	}
 	.more-body {
 		display: grid;

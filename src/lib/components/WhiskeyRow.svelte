@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Whiskey } from '#lib/db.ts';
+	import { LEVELS, isRunningLow, type Whiskey } from '#lib/db.ts';
 	import Stars from './Stars.svelte';
 
 	/**
@@ -7,13 +7,37 @@
 	 * once when the row scrolls into view, so long lists only load the photos
 	 * people actually see.
 	 */
-	let { whiskey, cover, onvisible }: { whiskey: Whiskey; cover?: string; onvisible?: () => void } =
-		$props();
+	let {
+		whiskey,
+		cover,
+		onvisible,
+		detail,
+		show = 'rating'
+	}: {
+		whiskey: Whiskey;
+		cover?: string;
+		onvisible?: () => void;
+		/** Replaces the distillery · age · proof line. */
+		detail?: string;
+		/** What the right-hand side shows: rating/want tag, or the bottle level. */
+		show?: 'rating' | 'level';
+	} = $props();
 
 	const meta = $derived(
-		[whiskey.distillery, whiskey.age, whiskey.proof && `${whiskey.proof} proof`]
-			.filter(Boolean)
-			.join(' · ')
+		detail ??
+			[whiskey.distillery, whiskey.age, whiskey.proof && `${whiskey.proof} proof`]
+				.filter(Boolean)
+				.join(' · ')
+	);
+	const fill = $derived(
+		whiskey.bottle === 'unopened' ? 1 : whiskey.bottle === 'open' ? (whiskey.level ?? 0.5) : 0
+	);
+	const levelText = $derived(
+		whiskey.bottle === 'unopened'
+			? 'Unopened'
+			: whiskey.bottle === 'finished'
+				? 'Finished'
+				: (LEVELS.find((l) => l.value === whiskey.level)?.label ?? 'Open')
 	);
 	const rated = $derived(whiskey.status === 'tasted' && whiskey.rating != null);
 
@@ -42,7 +66,12 @@
 		{#if meta}<span class="meta">{meta}</span>{/if}
 	</span>
 	<span class="end">
-		{#if rated}
+		{#if show === 'level'}
+			<span class="lv" class:low={isRunningLow(whiskey)} aria-hidden="true"
+				><span style:width="{fill * 100}%"></span></span
+			>
+			<span>{levelText}</span>
+		{:else if rated}
 			<Stars value={whiskey.rating} size={12} />
 			<span class="score">{whiskey.rating!.toFixed(1)}</span>
 		{:else if whiskey.status === 'want'}
@@ -105,6 +134,24 @@
 		justify-items: end;
 		gap: 2px;
 		font-size: 13px;
+	}
+	.lv {
+		display: block;
+		width: 44px;
+		height: 8px;
+		border: 1px solid var(--ink);
+		background: var(--base);
+	}
+	.lv span {
+		display: block;
+		height: 100%;
+		background: var(--amber);
+	}
+	.lv.low span {
+		background: var(--red);
+	}
+	.end {
+		font-size: 12px;
 	}
 	.tag {
 		font-family: var(--font-label);

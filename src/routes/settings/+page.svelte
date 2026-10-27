@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { db } from '#lib/db.ts';
+	import { HEADERS, toRow } from '#lib/sheetRow.ts';
 	import AppHeader from '#lib/components/AppHeader.svelte';
 	import { signIn, signOut } from '#lib/google/auth.svelte.ts';
 	import {
@@ -90,22 +91,6 @@
 			: null
 	);
 
-	const COLUMNS = [
-		'id',
-		'name',
-		'distillery',
-		'type',
-		'age',
-		'proof',
-		'status',
-		'rating',
-		'notes',
-		'tags',
-		'pricePaid',
-		'createdAt',
-		'updatedAt'
-	] as const;
-
 	function csvCell(v: unknown): string {
 		const s = Array.isArray(v) ? v.join(', ') : v == null ? '' : String(v);
 		return /[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
@@ -113,9 +98,14 @@
 
 	async function exportCsv() {
 		const rows = await db.whiskeys.orderBy('name').toArray();
+		// Same columns as the sheet, minus the photo links.
+		const keep = HEADERS.map((_, i) => i).filter((i) => HEADERS[i] !== 'Photos');
 		const lines = [
-			COLUMNS.join(','),
-			...rows.map((r) => COLUMNS.map((c) => csvCell(r[c])).join(','))
+			keep.map((i) => csvCell(HEADERS[i])).join(','),
+			...rows.map((r) => {
+				const row = toRow(r, []);
+				return keep.map((i) => csvCell(row[i])).join(',');
+			})
 		];
 		const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
 		const a = document.createElement('a');

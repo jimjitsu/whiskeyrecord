@@ -1,22 +1,32 @@
 <script lang="ts">
 	import { liveQuery } from 'dexie';
 	import { onDestroy } from 'svelte';
-	import { db, type Whiskey } from '#lib/db.ts';
+	import { db, isRunningLow, type Whiskey } from '#lib/db.ts';
 	import { createPhotoUrls } from '#lib/photoUrl.svelte.ts';
 	import AppHeader from '#lib/components/AppHeader.svelte';
 	import WhiskeyRow from '#lib/components/WhiskeyRow.svelte';
 	import SyncStatus from '#lib/components/SyncStatus.svelte';
 	import { nav } from '#lib/nav.svelte.ts';
 
-	// The full list: filter by status, sort, newest grouped by month.
+	// The full list: filter by status (or what's on your shelf), sort, newest grouped by month.
 	// Filter and sort are remembered for the session, so coming back from a record keeps them.
-	type Show = 'all' | 'tasted' | 'want';
-	type Sort = 'newest' | 'rating' | 'az';
+	type Show = 'all' | 'tasted' | 'want' | 'shelf';
+	type Sort = 'newest' | 'rating' | 'az' | 'level';
 	const SORTS: { value: Sort; label: string }[] = [
 		{ value: 'newest', label: 'Newest' },
 		{ value: 'rating', label: 'Rating' },
-		{ value: 'az', label: 'A–Z' }
+		{ value: 'az', label: 'A–Z' },
+		{ value: 'level', label: 'Level' }
 	];
+	const onShelf = (w: Whiskey) => w.bottle === 'unopened' || w.bottle === 'open';
+	// Unopened counts as full; an open bottle with no level set as half.
+	const fill = (w: Whiskey) => (w.bottle === 'unopened' ? 1 : (w.level ?? 0.5));
+
+	function setShow(value: Show) {
+		nav.show = value;
+		if (value === 'shelf') nav.sort = 'level';
+		else if (nav.sort === 'level') nav.sort = 'newest';
+	}
 
 	let whiskeys = $state<Whiskey[]>([]);
 	let loaded = $state(false);
@@ -33,12 +43,21 @@
 	const counts = $derived({
 		all: whiskeys.length,
 		tasted: whiskeys.filter((w) => w.status === 'tasted').length,
-		want: whiskeys.filter((w) => w.status === 'want').length
+		want: whiskeys.filter((w) => w.status === 'want').length,
+		shelf: whiskeys.filter(onShelf).length
 	});
+	const low = $derived(whiskeys.filter(isRunningLow).length);
 
 	const added = (w: Whiskey) => w.createdAt || w.updatedAt;
 	const sorted = $derived.by(() => {
-		const list = show === 'all' ? [...whiskeys] : whiskeys.filter((w) => w.status === show);
+		const list =
+			show === 'all'
+				? [...whiskeys]
+				: show === 'shelf'
+					? whiskeys.filter(onShelf)
+					: whiskeys.filter((w) => w.status === show);
+		if (sort === 'level')
+			return list.sort((a, b) => fill(a) - fill(b) || a.name.localeCompare(b.name));
 		if (sort === 'az') return list.sort((a, b) => a.name.localeCompare(b.name));
 		if (sort === 'rating')
 			return list.sort(
@@ -78,20 +97,29 @@
 	<h1>My whiskeys</h1>
 
 	<div class="filters" role="group" aria-label="Show">
-		{#each [['all', 'All'], ['tasted', 'Tasted'], ['want', 'Want']] as [value, label] (value)}
+		{#each [['all', 'All'], ['tasted', 'Tasted'], ['want', 'Want'], ['shelf', 'Shelf']] as const as [value, label] (value)}
 			<button
 				type="button"
 				class:on={show === value}
 				aria-pressed={show === value}
-				onclick={() => (nav.show = value)}>{label} {counts[value as Show]}</button
+				onclick={() => setShow(value)}>{label} <span class="n">{counts[value]}</span></button
 			>
 		{/each}
 	</div>
 
+	{#if low || show === 'shelf'}
+		<a class="banner" class:quiet={!low} href="/shopping">
+			<span>{low ? `${low} running low` : 'Shopping list'}</span>
+			<strong>{low ? 'Shopping list ›' : '›'}</strong>
+		</a>
+	{/if}
+
 	<div class="sortbar">
 		<label for="sort" class="muted">Sort</label>
 		<select id="sort" value={sort} onchange={(e) => (nav.sort = e.currentTarget.value)}>
-			{#each SORTS as s (s.value)}<option value={s.value}>{s.label}</option>{/each}
+			{#each SORTS.filter((s) => s.value !== 'level' || show === 'shelf') as s (s.value)}<option
+					value={s.value}>{s.label}</option
+				>{/each}
 		</select>
 	</div>
 
@@ -101,7 +129,9 @@
 				? 'Nothing here yet.'
 				: show === 'tasted'
 					? 'Nothing marked tasted yet.'
-					: 'Nothing on your want-to-try list yet.'}
+					: show === 'want'
+						? 'Nothing on your want-to-try list yet.'
+						: 'No bottles on your shelf yet. Set “Your bottle” on a record to Unopened or Open.'}
 		</p>
 	{/if}
 
@@ -115,6 +145,7 @@
 							whiskey={w}
 							cover={photos.urls[w.photoIds[0]]}
 							onvisible={() => w.photoIds[0] && photos.load([w.photoIds[0]])}
+							show={show === 'shelf' ? 'level' : 'rating'}
 						/>
 					</li>
 				{/each}
@@ -136,7 +167,7 @@
 	}
 	.filters {
 		display: grid;
-		grid-template-columns: repeat(3, 1fr);
+		grid-template-columns: repeat(4, 1fr);
 		border: var(--border);
 	}
 	.filters button {
@@ -153,6 +184,26 @@
 		background: var(--ink);
 		color: var(--base);
 		font-weight: 700;
+	}
+	.n {
+		font-weight: 400;
+		opacity: 0.8;
+	}
+	.banner {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		min-height: var(--tap);
+		padding: 0 var(--space-3);
+		border: var(--border);
+		border-left: 4px solid var(--red);
+		font-size: 14px;
+		font-weight: 700;
+		text-decoration: none;
+	}
+	.banner.quiet {
+		border-left-width: 1px;
+		font-weight: 400;
 	}
 	.sortbar {
 		display: flex;
