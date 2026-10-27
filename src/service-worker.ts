@@ -12,6 +12,8 @@ import { version } from '$app/env';
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
 const CACHE = `whiskey-record-${version}`;
+/** Holds a share from the Android share sheet until /share picks it up. */
+const SHARE_CACHE = 'whiskey-record-share';
 const SHELL = [...immutable, ...assets].map((f) => `/${f.path}`).concat('/');
 
 sw.addEventListener('install', (event) => {
@@ -27,15 +29,55 @@ sw.addEventListener('activate', (event) => {
 	event.waitUntil(
 		caches
 			.keys()
-			.then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+			.then((keys) =>
+				Promise.all(
+					keys.filter((k) => k !== CACHE && k !== SHARE_CACHE).map((k) => caches.delete(k))
+				)
+			)
 			.then(() => sw.clients.claim())
 	);
 });
 
+// "Share to Whiskey Record" (Android share sheet): the shared photo arrives as a
+// form POST to /share-target. Keep the files and text in a cache, then send the
+// app to /share, which turns them into a new record.
+
+async function receiveShare(request: Request): Promise<Response> {
+	try {
+		const form = await request.formData();
+		const cache = await caches.open(SHARE_CACHE);
+		for (const key of await cache.keys()) await cache.delete(key);
+		const files = form.getAll('photos').filter((f): f is File => f instanceof File && f.size > 0);
+		await Promise.all(
+			files.map((f, i) =>
+				cache.put(`/shared/photo-${i}`, new Response(f, { headers: { 'Content-Type': f.type } }))
+			)
+		);
+		const meta = {
+			count: files.length,
+			title: String(form.get('title') ?? ''),
+			text: String(form.get('text') ?? ''),
+			url: String(form.get('url') ?? '')
+		};
+		await cache.put('/shared/meta', new Response(JSON.stringify(meta)));
+	} catch {
+		/* /share will say nothing arrived */
+	}
+	return Response.redirect('/share', 303);
+}
+
 sw.addEventListener('fetch', (event) => {
 	const { request } = event;
-	if (request.method !== 'GET') return;
 	const url = new URL(request.url);
+	if (
+		request.method === 'POST' &&
+		url.origin === sw.location.origin &&
+		url.pathname === '/share-target'
+	) {
+		event.respondWith(receiveShare(request));
+		return;
+	}
+	if (request.method !== 'GET') return;
 	if (url.origin !== sw.location.origin) return;
 
 	if (request.mode === 'navigate') {

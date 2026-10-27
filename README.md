@@ -16,8 +16,9 @@ Working now:
 - Read-only record view; status and rating save instantly; Saved · Undo
 - Offline support (service worker) and installable manifest
 - Export CSV
+- Share to Whiskey Record from Android's share sheet (installed app): shared photos open a new record and are read by AI; a shared link starts a record named from the page title
 
-Next: OpenRouter label reading.
+- AI label reading with the user's own OpenRouter account (one-click PKCE connect, key kept on the device). Defaults to the best free model that reads images, falling back to `openrouter/free`; any vision model can be picked in Settings. Photos from the camera are read automatically; AI-filled fields are marked, and disagreements with what's already there show a pick-one card.
 
 ### How sync works
 
@@ -38,3 +39,13 @@ npm run build          # static site in ./build
 ```
 
 The camera needs HTTPS or localhost. To try it on an Android phone during development, use Chrome's remote debugging port forwarding, or deploy a preview.
+
+## Deploy
+
+Hosted on Cloudflare (Workers static assets), configured in `wrangler.jsonc`. With the GitHub repo connected in Cloudflare, every push to `main` builds and deploys. Build settings:
+
+- Build command: `npm run build`
+- Deploy command: `npx wrangler deploy`
+- Build variables: `PUBLIC_GOOGLE_CLIENT_ID`, `PUBLIC_GOOGLE_API_KEY` (same values as `.env`)
+
+Manual deploy from a computer: `npx wrangler login`, then `npm run deploy`.

@@ -50,11 +50,16 @@
 	}
 
 	async function fromFiles(e: Event & { currentTarget: HTMLInputElement }) {
-		const files = [...(e.currentTarget.files ?? [])];
+		const input = e.currentTarget;
+		const files = [...(input.files ?? [])];
+		// Clear now so picking the same photo again still fires a change.
+		input.value = '';
 		busy = true;
-		for (const f of files) await addBlob(f);
-		busy = false;
-		e.currentTarget.value = '';
+		try {
+			for (const f of files) await addBlob(f);
+		} finally {
+			busy = false;
+		}
 	}
 
 	function remove(i: number) {

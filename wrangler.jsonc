@@ -1,0 +1,11 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "whiskeyrecord",
+	"compatibility_date": "2026-10-23",
+	// Static site only: Cloudflare serves the files in ./build (from `npm run build`).
+	// Unknown paths get index.html so the app's own routes work on refresh.
+	"assets": {
+		"directory": "./build",
+		"not_found_handling": "single-page-application"
+	}
+}

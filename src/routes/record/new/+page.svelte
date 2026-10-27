@@ -8,8 +8,12 @@
 
 	// Start from the unsaved draft if there is one, unless new photos just arrived
 	// from the camera (that means a fresh entry).
+	// Photos straight from the camera get read by AI right away (when connected).
+	let fromCamera = $state(false);
+
 	async function start(): Promise<Whiskey> {
 		const blobs = takePendingPhotos();
+		fromCamera = blobs.length > 0;
 		if (!blobs.length) {
 			try {
 				const raw = localStorage.getItem(DRAFT_KEY);
@@ -33,5 +37,5 @@
 </script>
 
 {#await initialRecord then initial}
-	<RecordForm {initial} isNew draftKey={DRAFT_KEY} />
+	<RecordForm {initial} isNew draftKey={DRAFT_KEY} autoRead={fromCamera} />
 {/await}
