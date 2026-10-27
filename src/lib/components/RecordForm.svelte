@@ -6,7 +6,15 @@
 	import { resizeImage } from '#lib/images.ts';
 	import { createPhotoUrls } from '#lib/photoUrl.svelte.ts';
 	import { setUndo } from '#lib/undo.ts';
-	import { AiError, ai, aiReady, readLabel, type LabelReading } from '#lib/ai/openrouter.svelte.ts';
+	import {
+		AiError,
+		ai,
+		aiReady,
+		readDetails as readBottleDetails,
+		readLabel,
+		type DetailReading,
+		type LabelReading
+	} from '#lib/ai/openrouter.svelte.ts';
 	import AppHeader from './AppHeader.svelte';
 	import StatusToggle from './StatusToggle.svelte';
 	import RatingInput from './RatingInput.svelte';
@@ -104,7 +112,7 @@
 	}
 
 	// --- AI label reading -------------------------------------------------
-	type AiField = Exclude<keyof LabelReading, 'model'>;
+	type AiField = Exclude<keyof LabelReading | keyof DetailReading, 'model'>;
 	const AI_FIELDS: { key: AiField; label: string }[] = [
 		{ key: 'name', label: 'Name' },
 		{ key: 'distillery', label: 'Distillery' },
@@ -119,6 +127,11 @@
 		{ key: 'region', label: 'Region' }
 	];
 	const BOTTLE_AI: AiField[] = ['cask', 'mashBill', 'batch', 'bottleSize', 'released', 'region'];
+	const CORE_AI = AI_FIELDS.filter((f) => !BOTTLE_AI.includes(f.key));
+	const DETAIL_AI = AI_FIELDS.filter((f) => BOTTLE_AI.includes(f.key));
+	/** The second, background step that reads bottle details. */
+	let detailsState = $state<'' | 'reading' | 'done' | 'failed'>('');
+	let detailsController: AbortController | null = null;
 	/** Opens Bottle details when the AI filled something in there, so it gets checked. */
 	let bottleOpen = $state(false);
 	let reading = $state(false);
@@ -152,6 +165,7 @@
 		const timeout = setTimeout(() => readController?.abort(), 45_000);
 		try {
 			applyReading(await readLabel(blobs, readController.signal));
+			readDetailsInBackground(blobs);
 		} catch (e) {
 			if ((e as Error).name === 'AbortError') {
 				if (reading) readError = 'The AI took too long. Fill it in yourself, or try again.';
@@ -171,10 +185,32 @@
 		readController?.abort();
 	}
 
-	function applyReading(r: LabelReading) {
+	async function readDetailsInBackground(blobs: Blob[]) {
+		detailsController?.abort();
+		const controller = (detailsController = new AbortController());
+		detailsState = 'reading';
+		const timeout = setTimeout(() => controller.abort(), 60_000);
+		try {
+			const r = await readBottleDetails(blobs, controller.signal);
+			const { filled, found } = applyFields(r, DETAIL_AI);
+			conflicts = [...conflicts, ...found];
+			if (filled) bottleOpen = true;
+			detailsState = 'done';
+		} catch {
+			// Details are a bonus: a failure here never blocks the form.
+			if (detailsController === controller) detailsState = 'failed';
+		} finally {
+			clearTimeout(timeout);
+			if (detailsController === controller) detailsController = null;
+		}
+	}
+	onDestroy(() => detailsController?.abort());
+
+	/** Fills empty fields from a reading; differing values become pick-one conflicts. */
+	function applyFields(r: Partial<Record<AiField, string>>, fields: typeof AI_FIELDS) {
 		let filled = 0;
-		const next: typeof conflicts = [];
-		for (const { key, label } of AI_FIELDS) {
+		const found: typeof conflicts = [];
+		for (const { key, label } of fields) {
 			const value = r[key];
 			if (!value) continue;
 			const current = w[key].trim();
@@ -183,11 +219,15 @@
 				aiFilled[key] = true;
 				filled++;
 			} else if (norm(current) !== norm(value)) {
-				next.push({ key, label, ai: value, current });
+				found.push({ key, label, ai: value, current });
 			}
 		}
+		return { filled, found };
+	}
+
+	function applyReading(r: LabelReading) {
+		const { filled, found: next } = applyFields(r, CORE_AI);
 		conflicts = next;
-		if (BOTTLE_AI.some((k) => aiFilled[k])) bottleOpen = true;
 		readNote =
 			filled || next.length
 				? `Read by ${r.model.replace(/:free$/, '')}. Check what it filled in.`
@@ -301,6 +341,13 @@
 		</div>
 	{/if}
 	{#if readNote}<p class="ai-note" role="status">{readNote}</p>{/if}
+	{#if detailsState === 'reading'}
+		<p class="muted small" role="status">Reading bottle details in the background…</p>
+	{:else if detailsState === 'failed'}
+		<p class="muted small" role="status">
+			Couldn't read bottle details this time. Add them yourself if you like.
+		</p>
+	{/if}
 
 	{#each conflicts as c (c.key)}
 		<div class="conflict" role="group" aria-label="{c.label}: pick one">

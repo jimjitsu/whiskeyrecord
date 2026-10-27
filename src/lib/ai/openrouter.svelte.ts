@@ -182,60 +182,68 @@ async function modelsToTry(): Promise<{ models: string[]; structured: boolean }>
 	}
 }
 
-export interface LabelReading {
-	name: string;
-	distillery: string;
-	type: string;
-	age: string;
-	proof: string;
-	// Bottle details, when the label shows them.
-	cask: string;
-	mashBill: string;
-	batch: string;
-	bottleSize: string;
-	released: string;
-	region: string;
-	/** The model that answered, for the "read by" note. */
-	model: string;
-}
+/**
+ * Label reading runs in two steps so the form fills quickly: the core fields
+ * first (what the duplicate check and search need), then the bottle details
+ * in a second, background request. One request asking for everything made
+ * free "thinking" models slow enough to time out.
+ */
+const CORE = ['name', 'distillery', 'type', 'age', 'proof'] as const;
+const DETAILS = ['cask', 'mashBill', 'batch', 'bottleSize', 'released', 'region'] as const;
+type CoreField = (typeof CORE)[number];
+type DetailField = (typeof DETAILS)[number];
 
-const FIELDS = [
-	'name',
-	'distillery',
-	'type',
-	'age',
-	'proof',
-	'cask',
-	'mashBill',
-	'batch',
-	'bottleSize',
-	'released',
-	'region'
-] as const;
+/** The model that answered is kept for the "read by" note. */
+export type LabelReading = Record<CoreField, string> & { model: string };
+export type DetailReading = Record<DetailField, string> & { model: string };
 
-const PROMPT = `You read whiskey bottle labels. Look at the photo(s) and reply with ONLY a JSON object, no other text:
-{"name": "", "distillery": "", "type": "", "age": "", "proof": "", "cask": "", "mashBill": "", "batch": "", "bottleSize": "", "released": "", "region": ""}
+const COMMON_RULES = `- If something isn't readable, use "". Never guess a value that isn't on the label.
+- If the photo isn't a whiskey bottle, return all fields as "".`;
+
+const CORE_PROMPT = `You read whiskey bottle labels. Look at the photo(s) and reply with ONLY a JSON object, no other text:
+{"name": "", "distillery": "", "type": "", "age": "", "proof": ""}
 Rules:
 - name: the product name as a person would say it, e.g. "Eagle Rare 10 Year", "Lagavulin 16". Leave out words like "Kentucky Straight Bourbon Whiskey" unless they are the name.
 - distillery: who made it, e.g. "Buffalo Trace". Use the producer, not the parent company, if both appear.
 - type: a short style, e.g. "Bourbon", "Rye", "Scotch", "Irish", "Japanese", "Tennessee".
 - age: like "10 yr". Blank if no age statement.
 - proof: a number only, e.g. "90". If only ABV is shown, proof = ABV x 2 (45% -> "90").
-- cask: the cask type or finish if stated, e.g. "Port cask finish", "Sherry cask", "New charred oak".
-- mashBill: the grain recipe if printed, e.g. "75% corn, 13% rye, 12% malted barley".
-- batch: a batch, barrel or cask number if printed, e.g. "Batch 23B", "Barrel 4512".
-- bottleSize: the volume, e.g. "750 ml", "70 cl", "1 L".
-- released: a release, bottling or vintage year if printed, e.g. "2024".
-- region: where it's from as printed, e.g. "Kentucky, USA", "Islay, Scotland". Use only what the label says.
-- If something isn't readable, use "". Never guess a value that isn't on the label.
-- If the photo isn't a whiskey bottle, return all fields as "".`;
+${COMMON_RULES}`;
 
-const SCHEMA = {
-	type: 'object',
-	properties: Object.fromEntries(FIELDS.map((f) => [f, { type: 'string' }])),
-	required: [...FIELDS],
-	additionalProperties: false
+const DETAIL_PROMPT = `You read whiskey bottle labels. Copy these details only if they are printed on the label. Reply with ONLY a JSON object, no other text:
+{"cask": "", "mashBill": "", "batch": "", "bottleSize": "", "released": "", "region": ""}
+Rules:
+- cask: the cask type or finish, e.g. "Port cask finish", "Sherry cask", "New charred oak".
+- mashBill: the grain recipe, e.g. "75% corn, 13% rye, 12% malted barley".
+- batch: a batch, barrel or cask number, e.g. "Batch 23B", "Barrel 4512".
+- bottleSize: the volume, e.g. "750 ml", "70 cl", "1 L".
+- released: a release, bottling or vintage year, e.g. "2024".
+- region: where it's from as printed, e.g. "Kentucky, USA", "Islay, Scotland".
+- Most labels show only a few of these: leave the rest "". Don't think hard about it.
+${COMMON_RULES}`;
+
+interface Task<F extends string> {
+	fields: readonly F[];
+	prompt: string;
+	schemaName: string;
+}
+const CORE_TASK: Task<CoreField> = {
+	fields: CORE,
+	prompt: CORE_PROMPT,
+	schemaName: 'whiskey_label'
 };
+const DETAIL_TASK: Task<DetailField> = {
+	fields: DETAILS,
+	prompt: DETAIL_PROMPT,
+	schemaName: 'whiskey_label_details'
+};
+
+const schemaFor = (fields: readonly string[]) => ({
+	type: 'object',
+	properties: Object.fromEntries(fields.map((f) => [f, { type: 'string' }])),
+	required: [...fields],
+	additionalProperties: false
+});
 
 export class AiError extends Error {
 	constructor(
@@ -257,20 +265,22 @@ async function toDataUrl(blob: Blob): Promise<string> {
 	});
 }
 
-type Reading = Omit<LabelReading, 'model'>;
-
 /**
  * Pulls the label fields out of a reply. Tolerates code fences, chatter around
  * the JSON, single quotes and trailing commas, and as a last resort picks the
  * fields out one by one. Returns null if nothing usable is there.
  */
-export function parseReading(text: string): Reading | null {
+export function parseReading<F extends string = CoreField>(
+	text: string,
+	fields: readonly F[] = CORE as unknown as readonly F[]
+): Record<F, string> | null {
 	const clean = (v: unknown) =>
 		typeof v === 'string' || typeof v === 'number' ? String(v).trim() : '';
-	const finish = (obj: Record<string, unknown>): Reading | null => {
-		const out = Object.fromEntries(FIELDS.map((f) => [f, clean(obj[f])])) as Reading;
-		out.proof = out.proof.replace(/\s*proof$/i, '');
-		return FIELDS.some((f) => f in obj) ? out : null;
+	const finish = (obj: Record<string, unknown>): Record<F, string> | null => {
+		const out = Object.fromEntries(fields.map((f) => [f, clean(obj[f])])) as Record<F, string>;
+		if ('proof' in out)
+			(out as Record<string, string>).proof = out['proof' as F].replace(/\s*proof$/i, '');
+		return fields.some((f) => f in obj) ? out : null;
 	};
 
 	const match = text.match(/\{[\s\S]*\}/);
@@ -291,7 +301,7 @@ export function parseReading(text: string): Reading | null {
 	}
 	// Field by field: "name": "…" or name: …
 	const obj: Record<string, string> = {};
-	for (const f of FIELDS) {
+	for (const f of fields) {
 		const m = text.match(new RegExp(`["']?${f}["']?\\s*[:=]\\s*["']?([^"'\\n,}]*)`, 'i'));
 		if (m) obj[f] = m[1];
 	}
@@ -308,19 +318,20 @@ const ERRORS = {
 };
 
 /** One request to OpenRouter. Returns the parsed reading or throws an AiError. */
-async function ask(
+async function ask<F extends string>(
+	task: Task<F>,
 	models: string[],
 	structured: boolean,
 	images: string[],
 	signal?: AbortSignal
-): Promise<LabelReading> {
+): Promise<Record<F, string> & { model: string }> {
 	const body: Record<string, unknown> = {
 		models,
 		messages: [
 			{
 				role: 'user',
 				content: [
-					{ type: 'text', text: PROMPT },
+					{ type: 'text', text: task.prompt },
 					...images.map((url) => ({ type: 'image_url', image_url: { url } }))
 				]
 			}
@@ -334,7 +345,7 @@ async function ask(
 	if (structured) {
 		body.response_format = {
 			type: 'json_schema',
-			json_schema: { name: 'whiskey_label', strict: true, schema: SCHEMA }
+			json_schema: { name: task.schemaName, strict: true, schema: schemaFor(task.fields) }
 		};
 	}
 
@@ -388,7 +399,8 @@ async function ask(
 	const text = Array.isArray(content) ? content.map((c) => c.text ?? '').join('') : (content ?? '');
 	const model = data.model ?? models[0];
 	// Some models put the answer in their reasoning instead of the reply.
-	const parsed = parseReading(text) ?? parseReading(choice?.message?.reasoning ?? '');
+	const parsed =
+		parseReading(text, task.fields) ?? parseReading(choice?.message?.reasoning ?? '', task.fields);
 	if (parsed) return { ...parsed, model };
 
 	const snippet = text.trim().slice(0, 200) || '(empty reply)';
@@ -399,22 +411,35 @@ async function ask(
 	);
 }
 
-/** Reads up to two photos (cover first) and returns what's on the label. */
-export async function readLabel(photos: Blob[], signal?: AbortSignal): Promise<LabelReading> {
+async function run<F extends string>(
+	task: Task<F>,
+	photos: Blob[],
+	signal?: AbortSignal
+): Promise<Record<F, string> & { model: string }> {
 	if (!ai.key) throw new AiError('Connect OpenRouter in Settings to read labels.', 'auth');
 	const { models, structured } = await modelsToTry();
 	const images = await Promise.all(photos.slice(0, 2).map(toDataUrl));
 	try {
-		return await ask(models, structured, images, signal);
+		return await ask(task, models, structured, images, signal);
 	} catch (e) {
 		// An unreadable answer: try once more with a different free model and plain JSON.
 		if (!(e instanceof AiError) || e.kind !== 'parse' || models[0] === FREE_ROUTER) throw e;
 		try {
-			return await ask([FREE_ROUTER], false, images, signal);
+			return await ask(task, [FREE_ROUTER], false, images, signal);
 		} catch (retry) {
 			if (retry instanceof AiError && retry.kind === 'parse')
 				retry.details = `${e.details}\nRetry: ${retry.details}`;
 			throw retry;
 		}
 	}
+}
+
+/** Reads up to two photos (cover first): name, distillery, type, age, proof. */
+export function readLabel(photos: Blob[], signal?: AbortSignal): Promise<LabelReading> {
+	return run(CORE_TASK, photos, signal);
+}
+
+/** Second step: bottle details (cask, mash bill, batch, size, year, region) if printed. */
+export function readDetails(photos: Blob[], signal?: AbortSignal): Promise<DetailReading> {
+	return run(DETAIL_TASK, photos, signal);
 }
