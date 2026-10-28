@@ -6,6 +6,7 @@
 	import { liveQuery } from 'dexie';
 	import { onDestroy } from 'svelte';
 	import AppHeader from '#lib/components/AppHeader.svelte';
+	import { setTheme, theme, type ThemeChoice } from '#lib/theme.svelte.ts';
 	import { signIn, signOut } from '#lib/google/auth.svelte.ts';
 	import {
 		connectSheet,
@@ -26,6 +27,12 @@
 		setModel,
 		type VisionModel
 	} from '#lib/ai/openrouter.svelte.ts';
+
+	const THEMES: { value: ThemeChoice; label: string }[] = [
+		{ value: 'system', label: 'System' },
+		{ value: 'light', label: 'Light' },
+		{ value: 'dark', label: 'Dark' }
+	];
 
 	let models = $state<VisionModel[]>([]);
 	let modelsError = $state('');
@@ -325,6 +332,26 @@
 	</section>
 
 	<section>
+		<p class="eyebrow" id="theme-label">Theme</p>
+		<div class="segmented" role="radiogroup" aria-labelledby="theme-label">
+			{#each THEMES as t (t.value)}
+				<button
+					type="button"
+					role="radio"
+					aria-checked={theme.choice === t.value}
+					class:on={theme.choice === t.value}
+					onclick={() => setTheme(t.value)}>{t.label}</button
+				>
+			{/each}
+		</div>
+		<p class="muted small">
+			{theme.choice === 'system'
+				? "Follows your phone's light or dark setting."
+				: `Always ${theme.choice} on this phone.`}
+		</p>
+	</section>
+
+	<section>
 		<p class="eyebrow">Your data</p>
 		<button class="btn btn-block" type="button" onclick={exportCsv}>Export CSV</button>
 		{#if sync.config}
@@ -361,6 +388,26 @@
 	}
 	section p {
 		margin: 0;
+	}
+	.segmented {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		border: var(--border);
+	}
+	.segmented button {
+		min-height: var(--tap);
+		border: 0;
+		background: transparent;
+		color: var(--ink);
+		cursor: pointer;
+	}
+	.segmented button + button {
+		border-left: var(--border);
+	}
+	.segmented .on {
+		font-weight: 700;
+		background: var(--ink);
+		color: var(--base);
 	}
 	.small {
 		font-size: 14px;

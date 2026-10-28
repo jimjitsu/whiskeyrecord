@@ -1,5 +1,6 @@
 /* Design tokens from the jimjitsu.dev design system.
-   Light is the default; dark follows the phone's system setting. */
+   Light is the default; dark follows the phone's system setting unless
+   the user picks a theme in Settings (data-theme on <html>). */
 :root {
 	--base: #f5efe0;
 	--surface: #eae2d0;
@@ -28,8 +29,10 @@
 	color-scheme: light dark;
 }
 
+/* Dark tokens: from the phone's setting, unless Settings → Theme says Light;
+   or always, when it says Dark. */
 @media (prefers-color-scheme: dark) {
-	:root {
+	:root:not([data-theme='light']) {
 		--base: #15110d;
 		--surface: #1f1a14;
 		--ink: #f5efe0;
@@ -40,6 +43,23 @@
 		--pink: #ff8fbe;
 		--on-accent: #15110d;
 	}
+}
+
+:root[data-theme='dark'] {
+	--base: #15110d;
+	--surface: #1f1a14;
+	--ink: #f5efe0;
+	--ink-muted: #b8b0a0;
+	--teal: #3fb5b3;
+	--amber: #ffc857;
+	--red: #e55b47;
+	--pink: #ff8fbe;
+	--on-accent: #15110d;
+	color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+	color-scheme: light;
 }
 
 *,

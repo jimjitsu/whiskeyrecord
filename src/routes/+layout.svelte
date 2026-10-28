@@ -20,7 +20,13 @@
 		if (updated.current && !willUnload && to?.url) location.href = to.url.href;
 	});
 
+	// Check for a new version as soon as the app opens (SvelteKit also checks
+	// when it comes back to the foreground, and every 5 minutes). Not on the
+	// camera, where a reload would lose the photos just taken.
+	const showUpdate = $derived(updated.current && page.url.pathname !== '/camera');
+
 	onMount(() => {
+		updated.check().catch(() => {});
 		// The privacy page has to be readable without setting anything up.
 		if (!isOnboarded() && !['/welcome', '/privacy'].includes(page.url.pathname))
 			goto('/welcome', { replaceState: true });
@@ -31,10 +37,37 @@
 </script>
 
 <div class="app">
+	{#if showUpdate}
+		<div class="update" role="status">
+			<span>The app was updated.</span>
+			<button type="button" onclick={() => location.reload()}>Reload</button>
+		</div>
+	{/if}
 	{@render children()}
 </div>
 
 <style>
+	.update {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
+		padding: env(safe-area-inset-top) var(--space-2) 0 var(--gutter);
+		background: var(--ink);
+		color: var(--base);
+		font-size: 14px;
+	}
+	.update button {
+		min-height: var(--tap);
+		padding: 0 var(--space-3);
+		border: 0;
+		background: none;
+		color: var(--amber);
+		font-weight: 700;
+		text-decoration: underline;
+		white-space: nowrap;
+		cursor: pointer;
+	}
 	.app {
 		max-width: 480px;
 		margin: 0 auto;
