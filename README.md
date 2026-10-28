@@ -25,6 +25,16 @@ Working now:
 
 The sheet is the source of truth; the device keeps a copy for search and offline use. Rows are matched by the ID column. Changed on one side only → that side wins; changed on both → the newer Updated time wins. Google access tokens last about an hour and there's no refresh token without a server, so after that the sync chip asks for a tap to renew.
 
+## For testers
+
+1. On your Android phone, open **https://whiskeyrecord.app** in Chrome.
+2. Tap the menu (⋮) → **Install app** (or **Add to Home screen**), then open Whiskey Record from your home screen.
+3. Tap **Connect Google Drive** and sign in. While the app is in testing, Google shows an "unverified app" warning: tap **Continue**. The app can only see the sheet and photo folder it creates.
+4. Optional: tap **Connect OpenRouter** to have AI read labels from your photos. It's free (about 25 bottles a day); you can skip this and type instead.
+5. Something wrong? **Settings → Send feedback** opens an email with the details I need.
+
+Your record lives in your own Google Sheet ("Whiskey Record") and on your phone; see [whiskeyrecord.app/privacy](https://whiskeyrecord.app/privacy).
+
 ## Stack
 
 SvelteKit 3 (Svelte 5) as a static single-page app, Dexie (IndexedDB) for the on-device copy, Fuse.js for search. Design tokens and fonts from the jimjitsu.dev design system.
@@ -32,10 +42,11 @@ SvelteKit 3 (Svelte 5) as a static single-page app, Dexie (IndexedDB) for the on
 ## Develop
 
 ```sh
-cp .env.example .env   # fill in the Google client ID and API key
+cp .env.example .env   # fill in the Google client ID (feedback email optional)
 npm install
 npm run dev            # http://localhost:5173
 npm run check          # types
+npm test               # unit tests (Vitest)
 npm run build          # static site in ./build
 ```
 

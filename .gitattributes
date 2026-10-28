@@ -1,0 +1,5 @@
+# Keep line endings LF everywhere so formatting checks pass on any OS.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.woff2 binary

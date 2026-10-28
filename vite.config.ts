@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
@@ -18,5 +19,10 @@ export default defineConfig({
 			// then switches to a full page load so the new version is used.
 			version: { pollInterval: 5 * 60_000 }
 		})
-	]
+	],
+	test: {
+		include: ['src/**/*.test.ts'],
+		environment: 'node',
+		setupFiles: ['src/test-setup.ts']
+	}
 });
