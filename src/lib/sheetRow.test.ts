@@ -21,7 +21,8 @@ const sample = (): Whiskey => ({
 	cask: 'New charred oak',
 	bottle: 'open',
 	level: 0.25,
-	buyAgain: 'yes'
+	buyAgain: 'yes',
+	barcodes: ['081234567892', '5010314100023']
 });
 
 describe('toRow / fromRow', () => {
@@ -49,6 +50,14 @@ describe('toRow / fromRow', () => {
 		expect(parsed.fields.name).toBe('Copper Kettle 8 Year');
 		expect(parsed.fields.bottle).toBe('');
 		expect(parsed.fields.cask).toBe('');
+	});
+
+	it('reads barcodes typed into the sheet with spaces, or turned into numbers', () => {
+		const row = toRow(sample(), []);
+		row[HEADERS.indexOf('Barcode')] = '0 81234 56789 2, 5010314100023';
+		expect(fromRow(row)!.fields.barcodes).toEqual(['081234567892', '5010314100023']);
+		row[HEADERS.indexOf('Barcode')] = 81234567892;
+		expect(fromRow(row)!.fields.barcodes).toEqual(['81234567892']);
 	});
 
 	it('skips rows without a name', () => {
@@ -96,7 +105,7 @@ describe('readTime', () => {
 describe('rowHash', () => {
 	it('matches between an old 14-column row and the same row with empty new columns', () => {
 		const full = toRow(
-			{ ...sample(), tastedOn: '', cask: '', bottle: '', level: null, buyAgain: '' },
+			{ ...sample(), tastedOn: '', cask: '', bottle: '', level: null, buyAgain: '', barcodes: [] },
 			[]
 		);
 		expect(rowHash(full)).toBe(rowHash(full.slice(0, 14)));

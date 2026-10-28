@@ -1,7 +1,17 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { onDestroy, onMount, untrack } from 'svelte';
-	import { DETAIL_DEFAULTS, addPhotos, db, saveWhiskey, usedTypes, type Whiskey } from '#lib/db.ts';
+	import {
+		DETAIL_DEFAULTS,
+		addPhotos,
+		cleanBarcode,
+		db,
+		saveWhiskey,
+		usedTypes,
+		type Whiskey
+	} from '#lib/db.ts';
+	import { barcodeSupported, formatBarcode } from '#lib/barcode.ts';
+	import BarcodeScanner from './BarcodeScanner.svelte';
 	import { findLikelyDuplicates } from '#lib/search.ts';
 	import { resizeImage } from '#lib/images.ts';
 	import { createPhotoUrls } from '#lib/photoUrl.svelte.ts';
@@ -42,6 +52,9 @@
 		untrack(() => ({ ...DETAIL_DEFAULTS, ...structuredClone($state.snapshot(initial)) }))
 	);
 	let tagsText = $state(untrack(() => initial.tags.join(', ')));
+	let barcodesText = $state(untrack(() => (initial.barcodes ?? []).map(formatBarcode).join(', ')));
+	let scanning = $state(false);
+	const canScan = barcodeSupported();
 	let restored = $state(false);
 	let types = $state<string[]>([]);
 	let others = $state<Whiskey[]>([]);
@@ -51,11 +64,12 @@
 		try {
 			const raw = localStorage.getItem(draftKey);
 			if (raw) {
-				const d = JSON.parse(raw) as { w: Whiskey; tagsText: string };
+				const d = JSON.parse(raw) as { w: Whiskey; tagsText: string; barcodesText?: string };
 				if (d.w?.id === w.id) {
 					// Drafts saved before the detail fields existed lack them.
 					w = { ...DETAIL_DEFAULTS, ...d.w };
 					tagsText = d.tagsText;
+					barcodesText = d.barcodesText ?? (w.barcodes ?? []).map(formatBarcode).join(', ');
 					restored = true;
 				}
 			}
@@ -68,7 +82,7 @@
 	});
 
 	$effect(() => {
-		const snapshot = JSON.stringify({ w: $state.snapshot(w), tagsText });
+		const snapshot = JSON.stringify({ w: $state.snapshot(w), tagsText, barcodesText });
 		try {
 			localStorage.setItem(draftKey, snapshot);
 		} catch {
@@ -85,6 +99,27 @@
 	}
 
 	const duplicates = $derived(isNew ? findLikelyDuplicates(others, w.name, w.id) : []);
+
+	// Barcodes: typed (any spacing) or scanned, separated by commas.
+	const barcodes = $derived([
+		...new Set(
+			barcodesText
+				.split(/[,\n]/)
+				.map(cleanBarcode)
+				.filter((c) => c.length >= 6)
+		)
+	]);
+	/** Other records that already carry one of these barcodes. */
+	const sameBarcode = $derived(
+		others.filter((o) => o.id !== w.id && (o.barcodes ?? []).some((c) => barcodes.includes(c)))
+	);
+
+	function scanned(code: string) {
+		scanning = false;
+		if (!barcodes.includes(code)) {
+			barcodesText = [barcodesText.trim(), formatBarcode(code)].filter(Boolean).join(', ');
+		}
+	}
 
 	// Photos
 	const photos = createPhotoUrls();
@@ -259,7 +294,8 @@
 			tags: tagsText
 				.split(',')
 				.map((t) => t.trim())
-				.filter(Boolean)
+				.filter(Boolean),
+			barcodes
 		};
 		// Photos removed during this edit are deleted once the save succeeds.
 		const before = previous?.photoIds ?? [];
@@ -503,6 +539,7 @@
 	<details class="more" bind:open={bottleOpen}>
 		<summary
 			>Bottle details{@render count([
+				barcodes.length,
 				w.cask,
 				w.mashBill,
 				w.batch,
@@ -512,6 +549,33 @@
 			])}</summary
 		>
 		<div class="more-body">
+			<div class="field">
+				<label class="eyebrow" for="barcode">Barcode</label>
+				<div class="scanrow">
+					<input
+						id="barcode"
+						autocomplete="off"
+						inputmode="numeric"
+						bind:value={barcodesText}
+						placeholder="0 81234 56789 2"
+					/>
+					{#if canScan}
+						<button type="button" class="btn scan" onclick={() => (scanning = true)}>Scan</button>
+					{/if}
+				</div>
+				<p class="muted small">
+					One per bottle size, separated by commas. Scanning it later shows this record.
+				</p>
+				{#if sameBarcode.length}
+					<div class="dupes" role="status">
+						<p class="eyebrow">Barcode already on</p>
+						{#each sameBarcode as d (d.id)}
+							<a class="btn btn-block" href="/record/{d.id}" onclick={clearDraft}>Open “{d.name}”</a
+							>
+						{/each}
+					</div>
+				{/if}
+			</div>
 			{@render detail('cask', 'Cask / finish', 'Port cask finish')}
 			{@render detail('mashBill', 'Mash bill', '75% corn, 13% rye, 12% malted barley')}
 			<div class="pair">
@@ -624,6 +688,10 @@
 	</div>
 </form>
 
+{#if scanning}
+	<BarcodeScanner onscan={scanned} onclose={() => (scanning = false)} />
+{/if}
+
 {#snippet detail(
 	key: 'cask' | 'mashBill' | 'batch' | 'bottleSize' | 'released' | 'region',
 	label: string,
@@ -733,6 +801,20 @@
 		padding: var(--space-3);
 		border: 1px dashed var(--pink);
 		background: var(--surface);
+	}
+	.scanrow {
+		display: flex;
+		gap: var(--space-2);
+	}
+	.scanrow input {
+		flex: 1;
+		min-width: 0;
+	}
+	.scan {
+		flex: none;
+		background: var(--teal);
+		border-color: var(--teal);
+		color: var(--on-accent);
 	}
 	.pair {
 		display: grid;

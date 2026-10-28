@@ -12,6 +12,7 @@ Working now:
 
 - Home with two paths: typo-tolerant search ("Have I had this?") or add a whiskey; the full list lives on a My whiskeys screen with filters and sorting
 - In-app camera with gallery picker and multiple photos (first is the cover)
+- Barcode check: the camera spots a bottle's barcode and shows your matching record ("You've had this"); new barcodes are saved with the new record, and the edit form has a Scan button. Matches only against your own record, offline, using the browser's built-in barcode reader (Chrome on Android, Safari on iOS 17+)
 - New / edit form with draft autosave, duplicate check, status, 1–5 rating with 0.1 slider, and optional detail groups (when & where, bottle details, buying & owning, tags)
 - Read-only record view with a portrait thumbnail and full-screen photo viewer; status, rating and bottle level save instantly; Saved · Undo
 - Bottle level for bottles you own, a Shelf filter, and a shopping list of running-low bottles you'd buy again plus your want-to-try list

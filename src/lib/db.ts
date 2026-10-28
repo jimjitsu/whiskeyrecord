@@ -43,6 +43,8 @@ export interface Whiskey {
 	boughtAt: string;
 	retail: string;
 	buyAgain: '' | 'yes' | 'no';
+	/** Barcodes (digits only) linked to this whiskey, one per bottle size. */
+	barcodes: string[];
 	/** Photo ids in display order; the first is the cover. */
 	photoIds: string[];
 	createdAt: string;
@@ -91,6 +93,17 @@ class WhiskeyDB extends Dexie {
 						Object.assign(w, { ...DETAIL_DEFAULTS, ...w });
 					})
 			);
+		// Barcodes, indexed so a scan finds its record without loading every row.
+		this.version(4)
+			.stores({ whiskeys: 'id, name, distillery, status, updatedAt, dirty, *barcodes' })
+			.upgrade((tx) =>
+				tx
+					.table('whiskeys')
+					.toCollection()
+					.modify((w: Whiskey) => {
+						w.barcodes ??= [];
+					})
+			);
 	}
 }
 
@@ -107,7 +120,8 @@ export const DETAIL_DEFAULTS = {
 	level: null,
 	boughtAt: '',
 	retail: '',
-	buyAgain: ''
+	buyAgain: '',
+	barcodes: [] as string[]
 } satisfies Partial<Whiskey>;
 
 export const db = new WhiskeyDB();
@@ -198,6 +212,21 @@ export async function usedTypes(): Promise<string[]> {
 		if (key && !seen.has(key)) seen.set(key, t.trim());
 	}
 	return [...seen.values()];
+}
+
+/** Digits only, so "0 88004 02147 3" and "088004021473" match. */
+export function cleanBarcode(code: string): string {
+	return code.replace(/\D/g, '');
+}
+
+/** Records linked to a scanned barcode. UPC-A and its EAN-13 form (leading 0) match. */
+export async function findByBarcode(code: string): Promise<Whiskey[]> {
+	const c = cleanBarcode(code);
+	if (!c) return [];
+	const forms = [c];
+	if (c.length === 12) forms.push('0' + c);
+	if (c.length === 13 && c.startsWith('0')) forms.push(c.slice(1));
+	return db.whiskeys.where('barcodes').anyOf(forms).toArray();
 }
 
 const COMMON_TYPES = ['Bourbon', 'Rye', 'Scotch', 'Irish', 'Japanese', 'American single malt'];

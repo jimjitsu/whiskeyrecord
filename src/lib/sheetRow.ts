@@ -1,4 +1,11 @@
-import { LEVELS, bottleLabel, type BottleState, type Status, type Whiskey } from './db';
+import {
+	LEVELS,
+	bottleLabel,
+	cleanBarcode,
+	type BottleState,
+	type Status,
+	type Whiskey
+} from './db';
 
 /**
  * The sheet's columns, in order. Human-readable on purpose: people can open
@@ -31,10 +38,11 @@ export const HEADERS = [
 	'Your bottle',
 	'Bought at',
 	'Retail',
-	'Buy again'
+	'Buy again',
+	'Barcode'
 ] as const;
 
-export const LAST_COL = 'Z';
+export const LAST_COL = 'AA';
 
 const STATUS_LABEL: Record<Status, string> = { tasted: 'Tasted', want: 'Want to try' };
 
@@ -68,7 +76,9 @@ export function toRow(w: Whiskey, photoLinks: string[]): Row {
 		bottleLabel(w),
 		w.boughtAt,
 		w.retail,
-		w.buyAgain === 'yes' ? 'Yes' : w.buyAgain === 'no' ? 'No' : ''
+		w.buyAgain === 'yes' ? 'Yes' : w.buyAgain === 'no' ? 'No' : '',
+		// Written as text (RAW), so leading zeros survive.
+		(w.barcodes ?? []).join(', ')
 	];
 }
 
@@ -159,7 +169,8 @@ export function fromRow(row: unknown[]): ParsedRow | null {
 			...parseBottle(str(cells[22])),
 			boughtAt: str(cells[23]),
 			retail: str(cells[24]),
-			buyAgain: /^y/i.test(str(cells[25])) ? 'yes' : /^n/i.test(str(cells[25])) ? 'no' : ''
+			buyAgain: /^y/i.test(str(cells[25])) ? 'yes' : /^n/i.test(str(cells[25])) ? 'no' : '',
+			barcodes: str(cells[26]).split(/[,\n]/).map(cleanBarcode).filter(Boolean)
 		},
 		photoLinks: str(cells[11]).split(/\s+/).filter(Boolean)
 	};

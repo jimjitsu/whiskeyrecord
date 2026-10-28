@@ -3,7 +3,11 @@
 	import { page } from '$app/state';
 	import { onDestroy, onMount } from 'svelte';
 	import { resizeImage } from '#lib/images.ts';
-	import { pendingPhotos } from '#lib/draft.svelte.ts';
+	import { pendingBarcode, pendingPhotos } from '#lib/draft.svelte.ts';
+	import { findByBarcode, type Whiskey } from '#lib/db.ts';
+	import { barcodeSupported, readBarcodeFromBlob, watchVideo } from '#lib/barcode.ts';
+	import { createPhotoUrls } from '#lib/photoUrl.svelte.ts';
+	import WhiskeyRow from '#lib/components/WhiskeyRow.svelte';
 
 	// In-app viewfinder so several shots can be taken in a row.
 	// Falls back to the phone's own camera if permission is denied.
@@ -13,6 +17,45 @@
 	let shots = $state<{ blob: Blob; url: string }[]>([]);
 	let busy = $state(false);
 
+	// Barcode check: a barcode in view is matched against your own record.
+	const canScan = barcodeSupported();
+	/** A scanned barcode that's already in the record. */
+	let found = $state<{ code: string; matches: Whiskey[] } | null>(null);
+	/** A scanned barcode that isn't; it's saved with the new whiskey. */
+	let newCode = $state('');
+	// Codes already dealt with on this screen, so they don't pop up again.
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity
+	const handled = new Set<string>();
+	const covers = createPhotoUrls();
+	let stopWatching = () => {};
+
+	async function onCode(code: string) {
+		if (handled.has(code)) return;
+		handled.add(code);
+		const matches = await findByBarcode(code);
+		if (matches.length) {
+			found = { code, matches };
+			covers.load(matches.flatMap((m) => m.photoIds.slice(0, 1)));
+			navigator.vibrate?.(40);
+		} else if (!newCode) {
+			newCode = code;
+		}
+	}
+
+	function keepShooting() {
+		found = null;
+	}
+
+	const foundTitle = $derived(
+		!found
+			? ''
+			: found.matches.length > 1
+				? 'In your record'
+				: found.matches[0].status === 'tasted'
+					? "✓ You've had this"
+					: 'On your want-to-try list'
+	);
+
 	onMount(async () => {
 		try {
 			stream = await navigator.mediaDevices.getUserMedia({
@@ -20,6 +63,7 @@
 				audio: false
 			});
 			video.srcObject = stream;
+			stopWatching = watchVideo(video, onCode);
 		} catch {
 			cameraError =
 				"Couldn't open the camera here. You can still use your phone's camera or pick photos.";
@@ -27,6 +71,8 @@
 	});
 
 	onDestroy(() => {
+		stopWatching();
+		covers.release();
 		stream?.getTracks().forEach((t) => t.stop());
 		shots.forEach((s) => URL.revokeObjectURL(s.url));
 	});
@@ -36,6 +82,10 @@
 	}
 
 	async function addBlob(blob: Blob) {
+		// A barcode in a full-size photo reads better than in the resized copy.
+		readBarcodeFromBlob(blob).then((code) => {
+			if (code) onCode(code);
+		});
 		push(await resizeImage(blob));
 	}
 
@@ -46,7 +96,8 @@
 		canvas.width = video.videoWidth;
 		canvas.height = video.videoHeight;
 		canvas.getContext('2d')!.drawImage(video, 0, 0);
-		push(await resizeImage(canvas));
+		const shot = await resizeImage(canvas);
+		push(shot);
 		busy = false;
 	}
 
@@ -70,6 +121,7 @@
 
 	function done() {
 		pendingPhotos.blobs = shots.map((s) => s.blob);
+		pendingBarcode.code = newCode;
 		// A search that found nothing passes its text along as a starting name.
 		const name = page.url.searchParams.get('name');
 		goto(name ? `/record/new?name=${encodeURIComponent(name)}` : '/record/new');
@@ -79,12 +131,33 @@
 <div class="camera">
 	<div class="top">
 		<a class="close" href="/" aria-label="Close camera">✕</a>
-		<p>Fit the label in the frame</p>
+		<p>{canScan ? 'Fit the label or its barcode in the frame' : 'Fit the label in the frame'}</p>
 	</div>
 
 	<div class="view">
 		<video bind:this={video} autoplay playsinline muted></video>
 		<div class="guide" aria-hidden="true"></div>
+		{#if found}
+			<div class="found" role="dialog" aria-label="Barcode match">
+				<p class="eyebrow" class:had={found.matches[0].status === 'tasted'}>{foundTitle}</p>
+				<div class="matches">
+					{#each found.matches as m (m.id)}
+						<WhiskeyRow whiskey={m} cover={covers.urls[m.photoIds[0]]} />
+					{/each}
+				</div>
+				<div class="found-actions" class:one={found.matches.length > 1}>
+					<button class="btn" onclick={keepShooting}>Keep shooting</button>
+					{#if found.matches.length === 1}
+						<a class="btn btn-primary open" href="/record/{found.matches[0].id}">Open record</a>
+					{/if}
+				</div>
+			</div>
+		{:else if newCode}
+			<div class="newcode" role="status">
+				<span class="bars" aria-hidden="true"></span>
+				<span>New barcode. It'll be saved with this whiskey.</span>
+			</div>
+		{/if}
 		{#if cameraError}
 			<div class="fallback">
 				<p>{cameraError}</p>
@@ -191,6 +264,68 @@
 		inset: 8% 20%;
 		border: 2px dashed rgba(245, 239, 224, 0.8);
 		pointer-events: none;
+	}
+	.found {
+		position: absolute;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		display: grid;
+		gap: var(--space-3);
+		padding: var(--space-4) var(--gutter);
+		background: var(--base);
+		color: var(--ink);
+		border-top: var(--border);
+		max-height: 80%;
+		overflow-y: auto;
+	}
+	.found .eyebrow {
+		margin: 0;
+	}
+	.found .eyebrow.had {
+		color: var(--teal);
+	}
+	.matches {
+		display: grid;
+		gap: var(--space-2);
+	}
+	.found-actions {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: var(--space-2);
+	}
+	.found-actions.one {
+		grid-template-columns: 1fr;
+	}
+	.open {
+		background: var(--teal);
+		border-color: var(--teal);
+		color: var(--on-accent);
+	}
+	.newcode {
+		position: absolute;
+		left: var(--gutter);
+		right: var(--gutter);
+		bottom: var(--space-4);
+		display: flex;
+		gap: var(--space-3);
+		align-items: center;
+		padding: var(--space-3);
+		background: #1a1a1a;
+		border: 1px solid #f5efe0;
+		font-size: 13px;
+	}
+	.bars {
+		flex: none;
+		width: 22px;
+		height: 16px;
+		background: repeating-linear-gradient(
+			90deg,
+			#ffc857 0 2px,
+			transparent 2px 4px,
+			#ffc857 4px 5px,
+			transparent 5px 7px
+		);
 	}
 	.fallback {
 		position: absolute;

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatBarcode } from '#lib/barcode.ts';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { liveQuery } from 'dexie';
@@ -133,7 +134,8 @@
 					['Batch', w.batch],
 					['Bottle size', w.bottleSize],
 					['Released', w.released],
-					['Region', w.region]
+					['Region', w.region],
+					['Barcode', (w.barcodes ?? []).map(formatBarcode).join(', ')]
 				])
 			: []
 	);

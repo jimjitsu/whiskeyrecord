@@ -9,3 +9,12 @@ export function takePendingPhotos(): Blob[] {
 	pendingPhotos.blobs = [];
 	return blobs;
 }
+
+/** A barcode the camera read that isn't in the record yet; saved with the new whiskey. */
+export const pendingBarcode = $state<{ code: string }>({ code: '' });
+
+export function takePendingBarcode(): string {
+	const code = pendingBarcode.code;
+	pendingBarcode.code = '';
+	return code;
+}

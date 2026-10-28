@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { addPhotos, emptyWhiskey, type Whiskey } from '#lib/db.ts';
-	import { takePendingPhotos } from '#lib/draft.svelte.ts';
+	import { takePendingBarcode, takePendingPhotos } from '#lib/draft.svelte.ts';
 	import RecordForm from '#lib/components/RecordForm.svelte';
 
 	const DRAFT_KEY = 'whiskey-record:draft:new';
@@ -13,6 +13,7 @@
 
 	async function start(): Promise<Whiskey> {
 		const blobs = takePendingPhotos();
+		const barcode = takePendingBarcode();
 		fromCamera = blobs.length > 0;
 		if (!blobs.length) {
 			try {
@@ -30,6 +31,7 @@
 		}
 		const w = emptyWhiskey();
 		w.name = page.url.searchParams.get('name') ?? '';
+		if (barcode) w.barcodes = [barcode];
 		w.photoIds = blobs.length ? await addPhotos(blobs) : [];
 		return w;
 	}

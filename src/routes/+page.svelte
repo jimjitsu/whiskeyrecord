@@ -160,7 +160,7 @@
 				/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2" /></svg
 			>
 			<span class="add-title">Add a whiskey</span>
-			<span class="add-sub">Photograph the label. AI fills in the rest.</span>
+			<span class="add-sub">Photograph the label or its barcode. AI fills in the rest.</span>
 		</a>
 
 		{#if count}

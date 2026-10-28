@@ -128,7 +128,7 @@ export async function getTabGid(token: string, sheetId: string): Promise<number 
 export async function readRows(token: string, sheetId: string): Promise<unknown[][]> {
 	const r = await call<{ values?: unknown[][] }>(
 		token,
-		`${SHEETS}/${sheetId}/values/${encodeURIComponent(`${TAB}!A1:Z`)}?valueRenderOption=UNFORMATTED_VALUE`
+		`${SHEETS}/${sheetId}/values/${encodeURIComponent(`${TAB}!A1:AA`)}?valueRenderOption=UNFORMATTED_VALUE`
 	);
 	return r.values ?? [];
 }
