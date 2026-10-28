@@ -245,6 +245,7 @@
 	}
 
 	let saving = $state(false);
+	let saveError = $state('');
 	const canSave = $derived(w.name.trim().length > 0 && !saving);
 
 	async function save(e: SubmitEvent) {
@@ -263,7 +264,15 @@
 		// Photos removed during this edit are deleted once the save succeeds.
 		const before = previous?.photoIds ?? [];
 		const dropped = [...before, ...addedPhotoIds].filter((id) => !record.photoIds.includes(id));
-		await saveWhiskey(record);
+		try {
+			await saveWhiskey(record);
+		} catch (err) {
+			// The draft is still kept on the phone, so nothing typed is lost.
+			saving = false;
+			saveError = `Couldn't save on this phone${err instanceof Error && err.message ? ` (${err.message})` : ''}. Your draft is kept; try again.`;
+			return;
+		}
+		saveError = '';
 		setUndo({ id: record.id, previous, droppedPhotoIds: dropped });
 		clearDraft();
 		goto(`/record/${record.id}?saved=1`, { replaceState: true });
@@ -609,6 +618,7 @@
 	{/if}
 
 	<div class="savebar">
+		{#if saveError}<p class="save-error" role="alert">{saveError}</p>{/if}
 		<button class="btn btn-primary btn-block" type="submit" disabled={!canSave}>Save</button>
 		<p class="muted">Draft autosaved on this phone</p>
 	</div>
@@ -930,6 +940,10 @@
 		background: var(--base);
 		border-top: var(--border);
 		text-align: center;
+	}
+	.save-error {
+		color: var(--red);
+		font-weight: 700;
 	}
 	.savebar p {
 		margin: var(--space-1) 0 0;

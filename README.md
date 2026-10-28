@@ -47,6 +47,6 @@ Hosted on Cloudflare (Workers static assets), configured in `wrangler.jsonc`. Wi
 
 - Build command: `npm run build`
 - Deploy command: `npx wrangler deploy`
-- Build variables: `PUBLIC_GOOGLE_CLIENT_ID`, `PUBLIC_GOOGLE_API_KEY` (same values as `.env`)
+- Build variable: `PUBLIC_GOOGLE_CLIENT_ID` (same value as `.env`)
 
 Manual deploy from a computer: `npx wrangler login`, then `npm run deploy`.

@@ -22,6 +22,7 @@
 	import BottleControl from '#lib/components/BottleControl.svelte';
 	import PhotoViewer from '#lib/components/PhotoViewer.svelte';
 	import { nav } from '#lib/nav.svelte.ts';
+	import { signIn } from '#lib/google/auth.svelte.ts';
 
 	// Saved records open read-only. Status, rating and your bottle save
 	// instantly; everything else goes through Edit → Save.
@@ -42,6 +43,17 @@
 
 	let viewing = $state(false);
 
+	// Photos from another device download from Drive; after the hourly
+	// sign-in expires they can't, so offer the same one-tap sign-in as sync.
+	async function signInForPhotos() {
+		try {
+			await signIn('');
+			await photos.retry();
+		} catch {
+			/* popup closed: leave the button */
+		}
+	}
+
 	// "Saved · Undo"
 	let undo = $state<UndoEntry | null>(null);
 	onMount(() => {
@@ -57,6 +69,10 @@
 		const result = await applyUndo(entry);
 		if (result === 'deleted') goto('/', { replaceState: true });
 	}
+	// Leaving before the toast times out still has to clean up dropped photos.
+	onDestroy(() => {
+		if (undo) finalizeUndo(undo);
+	});
 	function dismissUndo() {
 		if (undo) finalizeUndo(undo);
 		undo = null;
@@ -165,7 +181,11 @@
 					</button>
 				{/if}
 			</div>
-			{#if w.photoIds.length}
+			{#if w.photoIds.length && !photos.urls[w.photoIds[0]] && photos.needsSignIn}
+				<button class="thumb empty" type="button" onclick={signInForPhotos}>
+					Sign in to load photo
+				</button>
+			{:else if w.photoIds.length}
 				<button
 					class="thumb"
 					type="button"
@@ -363,6 +383,8 @@
 	}
 	.thumb.empty {
 		border-style: dashed;
+		padding: var(--space-2);
+		text-align: center;
 	}
 	.thumb img {
 		position: absolute;
