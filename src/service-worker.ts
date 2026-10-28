@@ -29,11 +29,12 @@ sw.addEventListener('activate', (event) => {
 	event.waitUntil(
 		caches
 			.keys()
-			.then((keys) =>
-				Promise.all(
-					keys.filter((k) => k !== CACHE && k !== SHARE_CACHE).map((k) => caches.delete(k))
-				)
-			)
+			.then((keys) => {
+				// Keep the previous version's files for one more update, so a page
+				// that was already open can still load the code it asks for.
+				const old = keys.filter((k) => k !== CACHE && k !== SHARE_CACHE);
+				return Promise.all(old.slice(0, -1).map((k) => caches.delete(k)));
+			})
 			.then(() => sw.clients.claim())
 	);
 });

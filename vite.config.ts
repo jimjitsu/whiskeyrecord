@@ -13,7 +13,10 @@ export default defineConfig({
 			// Single-page app: every route falls back to index.html, served as plain files.
 			adapter: adapter({ fallback: 'index.html' }),
 			// Absolute asset paths, so the fallback page works at any route depth.
-			paths: { relative: false }
+			paths: { relative: false },
+			// Check for a new deploy every 5 minutes (and on focus); the layout
+			// then switches to a full page load so the new version is used.
+			version: { pollInterval: 5 * 60_000 }
 		})
 	]
 });

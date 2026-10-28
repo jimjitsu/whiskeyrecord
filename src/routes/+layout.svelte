@@ -5,14 +5,20 @@
 	import '@fontsource/jetbrains-mono/latin-700.css';
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
-	import { page } from '$app/state';
+	import { beforeNavigate, goto } from '$app/navigation';
+	import { page, updated } from '$app/state';
 	import { loadGis } from '#lib/google/auth.svelte.ts';
 	import { startAutoSync } from '#lib/sync.svelte.ts';
 	import { isOnboarded } from '#lib/onboarding.ts';
 	import type { LayoutProps } from './$types';
 
 	let { children }: LayoutProps = $props();
+
+	// After a deploy, the open app's code may point at files that no longer
+	// exist. Once a new version is detected, the next tap loads the page fresh.
+	beforeNavigate(({ willUnload, to }) => {
+		if (updated.current && !willUnload && to?.url) location.href = to.url.href;
+	});
 
 	onMount(() => {
 		if (!isOnboarded() && page.url.pathname !== '/welcome')
