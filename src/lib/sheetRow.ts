@@ -90,6 +90,30 @@ export function parseBottle(text: string): { bottle: BottleState; level: number 
 
 const str = (v: unknown) => (v == null ? '' : String(v)).trim();
 
+/**
+ * A timestamp cell as ISO text. Google may turn dates typed into the sheet into
+ * day-number serials (46316) or local formats; anything unreadable counts as now.
+ */
+export function readTime(v: unknown, now: string): string {
+	const s = str(v);
+	if (!s) return now;
+	if (/^\d+(\.\d+)?$/.test(s)) {
+		const ms = (Number(s) - 25569) * 86_400_000; // days since 1899-12-30
+		return Number.isFinite(ms) && Number(s) > 1 ? new Date(ms).toISOString() : now;
+	}
+	if (/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(s)) return s; // already what the app writes
+	const d = new Date(s);
+	return isNaN(d.getTime()) ? now : d.toISOString();
+}
+
+/** A date cell as YYYY-MM-DD when it reads as a date, else the text as typed. */
+function readDay(v: unknown): string {
+	const s = str(v);
+	if (/^\d{5}(\.\d+)?$/.test(s))
+		return new Date((Number(s) - 25569) * 86_400_000).toISOString().slice(0, 10);
+	return s;
+}
+
 export interface ParsedRow {
 	id: string;
 	fields: Omit<Whiskey, 'id' | 'photoIds' | 'dirty' | 'syncedHash' | 'lastSyncedAt'>;
@@ -122,9 +146,9 @@ export function fromRow(row: unknown[]): ParsedRow | null {
 				.map((t) => t.trim())
 				.filter(Boolean),
 			pricePaid: str(cells[10]),
-			createdAt: str(cells[12]) || now,
-			updatedAt: str(cells[13]) || now,
-			tastedOn: str(cells[14]),
+			createdAt: readTime(cells[12], now),
+			updatedAt: readTime(cells[13], now),
+			tastedOn: readDay(cells[14]),
 			whereTasted: str(cells[15]),
 			cask: str(cells[16]),
 			mashBill: str(cells[17]),

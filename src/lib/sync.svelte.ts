@@ -12,6 +12,7 @@ import {
 	getTabGid,
 	photoIdFromLink,
 	photoLink,
+	readIds,
 	readRows,
 	updateRows,
 	uploadPhoto
@@ -194,7 +195,7 @@ async function runOnce() {
 	try {
 		const file = await getFile(token, config.sheetId);
 		if (file.trashed) throw new GoogleApiError(404, 'trashed');
-		await reconcile(token, config);
+		await reconcileWithRetry(token, config);
 		sync.status = 'idle';
 		sync.lastSyncedAt = new Date().toISOString();
 	} catch (e) {
@@ -211,6 +212,23 @@ async function runOnce() {
 		}
 	}
 	await countUnsynced();
+}
+
+/** Thrown when rows moved in the sheet (sorted, rows inserted) between reading and writing. */
+class RowsMoved extends Error {}
+
+async function reconcileWithRetry(token: string, config: SheetConfig) {
+	for (let attempt = 1; ; attempt++) {
+		try {
+			return await reconcile(token, config);
+		} catch (e) {
+			if (!(e instanceof RowsMoved)) throw e;
+			if (attempt >= 3)
+				throw new Error('The sheet kept changing during sync. Try again in a moment.', {
+					cause: e
+				});
+		}
+	}
 }
 
 async function reconcile(token: string, config: SheetConfig) {
@@ -239,14 +257,17 @@ async function reconcile(token: string, config: SheetConfig) {
 	const localById = new Map(locals.map((w) => [w.id, w]));
 	const tombstones = new Set((await db.deletions.toArray()).map((d) => d.id));
 
-	const toUpdate: { rowNum: number; w: Whiskey }[] = [];
+	// expectId: what column A must still hold at rowNum when we write ('' for rows typed by hand).
+	const toUpdate: { rowNum: number; w: Whiskey; expectId: string }[] = [];
+	// Records made from hand-typed rows; undone if the sheet moves under us.
+	const createdFromHand: string[] = [];
 	const toAppend: Whiskey[] = [];
-	const rowDeletes: number[] = [];
+	const rowDeletes: { index: number; expectId: string }[] = [];
 
 	// 1. Deletions made on this device.
 	for (const id of tombstones) {
 		const r = remote.get(id);
-		if (r) rowDeletes.push(r.rowNum - 1);
+		if (r) rowDeletes.push({ index: r.rowNum - 1, expectId: id });
 		remote.delete(id);
 	}
 
@@ -254,7 +275,12 @@ async function reconcile(token: string, config: SheetConfig) {
 	for (const [id, r] of remote) {
 		const local = localById.get(id);
 		const parsed = fromRow(r.raw);
-		if (!parsed) continue;
+		if (!parsed) {
+			// The name was cleared in the sheet. A record needs a name, so put
+			// this device's copy back rather than lose the row.
+			if (local) toUpdate.push({ rowNum: r.rowNum, w: local, expectId: id });
+			continue;
+		}
 		const hash = rowHash(r.raw);
 		if (!local) {
 			await pullInto(null, id, parsed, hash);
@@ -265,7 +291,7 @@ async function reconcile(token: string, config: SheetConfig) {
 		if (takeRemote) {
 			await pullInto(local, id, parsed, hash);
 		} else if (local.dirty) {
-			toUpdate.push({ rowNum: r.rowNum, w: local });
+			toUpdate.push({ rowNum: r.rowNum, w: local, expectId: id });
 		}
 	}
 
@@ -289,7 +315,8 @@ async function reconcile(token: string, config: SheetConfig) {
 		if (!parsed) continue;
 		const id = newId();
 		const w = await pullInto(null, id, parsed, '');
-		toUpdate.push({ rowNum: r.rowNum, w });
+		createdFromHand.push(id);
+		toUpdate.push({ rowNum: r.rowNum, w, expectId: '' });
 	}
 
 	// Upload photos and build rows for everything being written.
@@ -308,9 +335,29 @@ async function reconcile(token: string, config: SheetConfig) {
 		written.push({ w, row });
 	}
 
+	// Row numbers came from the read at the start; uploading photos takes a
+	// while. If someone sorted the sheet or inserted rows meanwhile, writing
+	// by number would hit the wrong rows, so check the IDs and start over.
+	if (toUpdate.length || rowDeletes.length) {
+		const ids = await readIds(token, config.sheetId);
+		const moved =
+			toUpdate.some(({ rowNum, expectId }) => (ids[rowNum - 1] ?? '') !== expectId) ||
+			rowDeletes.some(({ index, expectId }) => (ids[index] ?? '') !== expectId);
+		if (moved) {
+			if (createdFromHand.length) await db.whiskeys.bulkDelete(createdFromHand);
+			throw new RowsMoved();
+		}
+	}
+
 	if (updates.length) await updateRows(token, config.sheetId, updates);
 	if (appendRowsData.length) await appendRows(token, config.sheetId, appendRowsData);
-	if (rowDeletes.length) await deleteRows(token, config.sheetId, config.gid, rowDeletes);
+	if (rowDeletes.length)
+		await deleteRows(
+			token,
+			config.sheetId,
+			config.gid,
+			rowDeletes.map((d) => d.index)
+		);
 
 	// Mark what was written as synced (unless it changed again meanwhile).
 	await db.transaction('rw', db.whiskeys, db.deletions, async () => {

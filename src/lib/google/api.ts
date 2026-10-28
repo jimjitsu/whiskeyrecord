@@ -154,6 +154,15 @@ export function appendRows(token: string, sheetId: string, values: unknown[][]) 
 }
 
 /** Deletes rows by 0-based index (header is row 0). */
+/** Just the ID column, to check rows haven't moved (e.g. the sheet was sorted) before writing. */
+export async function readIds(token: string, sheetId: string): Promise<string[]> {
+	const r = await call<{ values?: unknown[][] }>(
+		token,
+		`${SHEETS}/${sheetId}/values/${encodeURIComponent(`${TAB}!A1:A`)}?valueRenderOption=UNFORMATTED_VALUE`
+	);
+	return (r.values ?? []).map((row) => String(row[0] ?? '').trim());
+}
+
 export function deleteRows(token: string, sheetId: string, gid: number, rowIndexes: number[]) {
 	const requests = [...rowIndexes]
 		.sort((a, b) => b - a)
