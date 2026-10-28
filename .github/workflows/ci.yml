@@ -9,9 +9,12 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # The app reads this at build time (and when tests load its modules).
+    env:
+      PUBLIC_GOOGLE_CLIENT_ID: ci-placeholder.apps.googleusercontent.com
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -20,5 +23,3 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
-        env:
-          PUBLIC_GOOGLE_CLIENT_ID: ci-placeholder.apps.googleusercontent.com
