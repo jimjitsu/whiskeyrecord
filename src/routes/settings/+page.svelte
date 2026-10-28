@@ -1,12 +1,17 @@
 <script lang="ts">
 	import { db } from '#lib/db.ts';
 	import { HEADERS, toRow } from '#lib/sheetRow.ts';
+	import { version } from '$app/env';
+	import { PUBLIC_FEEDBACK_EMAIL } from '$app/env/public';
+	import { liveQuery } from 'dexie';
+	import { onDestroy } from 'svelte';
 	import AppHeader from '#lib/components/AppHeader.svelte';
 	import { signIn, signOut } from '#lib/google/auth.svelte.ts';
 	import {
 		connectSheet,
 		disconnectSheet,
 		replaceMissingSheet,
+		resetDeviceCopy,
 		sync,
 		syncNow
 	} from '#lib/sync.svelte.ts';
@@ -108,6 +113,56 @@
 	function csvCell(v: unknown): string {
 		const s = Array.isArray(v) ? v.join(', ') : v == null ? '' : String(v);
 		return /[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
+	}
+
+	// --- Support ------------------------------------------------------------
+	let recordCount = $state(0);
+	const countSub = liveQuery(() => db.whiskeys.count()).subscribe((n) => (recordCount = n));
+	onDestroy(() => countSub.unsubscribe());
+	// The build timestamp is the version; shown as a date and time testers can quote.
+	const built = new Date(Number(version));
+	const versionLabel = isNaN(built.getTime())
+		? version
+		: built.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+	const diagnostics = $derived(
+		[
+			`Version ${versionLabel}`,
+			`${recordCount} record${recordCount === 1 ? '' : 's'}`,
+			sync.config
+				? `last sync ${sync.lastSyncedAt ? new Date(sync.lastSyncedAt).toLocaleString() : 'not yet this session'}`
+				: 'not connected to Google',
+			sync.unsynced ? `${sync.unsynced} waiting` : '',
+			sync.status === 'error' ? `sync error: ${sync.message}` : ''
+		]
+			.filter(Boolean)
+			.join(' · ')
+	);
+	const feedbackHref = $derived(
+		PUBLIC_FEEDBACK_EMAIL
+			? `mailto:${PUBLIC_FEEDBACK_EMAIL}?subject=${encodeURIComponent('Whiskey Record feedback')}&body=${encodeURIComponent(`\n\n—\n${diagnostics}\n${navigator.userAgent}`)}`
+			: ''
+	);
+
+	let resetting = $state(false);
+	let resetNote = $state('');
+	async function resetDevice() {
+		if (
+			!confirm(
+				'Clear the copy on this phone and download everything again from your Google Sheet? It syncs first, so nothing is lost.'
+			)
+		)
+			return;
+		resetting = true;
+		resetNote = '';
+		try {
+			const result = await resetDeviceCopy();
+			resetNote =
+				result === 'done'
+					? 'Done. Your record was downloaded again from the sheet; photos load as you open them.'
+					: "Couldn't sync first, so nothing was cleared. Check the Google Sheet status above and try again.";
+		} finally {
+			resetting = false;
+		}
 	}
 
 	async function exportCsv() {
@@ -272,6 +327,25 @@
 	<section>
 		<p class="eyebrow">Your data</p>
 		<button class="btn btn-block" type="button" onclick={exportCsv}>Export CSV</button>
+		{#if sync.config}
+			<button class="btn btn-block" type="button" onclick={resetDevice} disabled={resetting}>
+				{resetting ? 'Re-downloading…' : 'Re-download from the sheet'}
+			</button>
+			<p class="muted small">
+				Clears the copy on this phone and downloads it again. Use it if something looks out of step
+				with your sheet.
+			</p>
+			{#if resetNote}<p class="small" role="status">{resetNote}</p>{/if}
+		{/if}
+	</section>
+
+	<section>
+		<p class="eyebrow">Help</p>
+		<p class="muted small diag">{diagnostics}</p>
+		{#if feedbackHref}
+			<a class="btn btn-block" href={feedbackHref}>Send feedback</a>
+		{/if}
+		<a class="small" href="/privacy">Privacy</a>
 	</section>
 </main>
 
@@ -304,6 +378,9 @@
 		border-left: 4px solid var(--red);
 		background: var(--surface);
 		font-size: 14px;
+	}
+	.diag {
+		overflow-wrap: anywhere;
 	}
 	.reco {
 		display: grid;

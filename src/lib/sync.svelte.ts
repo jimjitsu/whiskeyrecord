@@ -149,6 +149,23 @@ export function syncNow(): Promise<void> {
 	return running;
 }
 
+/**
+ * Support tool: throw away this device's copy and download everything again
+ * from the sheet. Only after a successful sync, so nothing unsynced is lost.
+ */
+export async function resetDeviceCopy(): Promise<'done' | 'not-synced'> {
+	await syncNow();
+	await countUnsynced();
+	if (sync.status !== 'idle' || sync.unsynced) return 'not-synced';
+	await db.transaction('rw', db.whiskeys, db.photos, db.deletions, async () => {
+		await db.whiskeys.clear();
+		await db.photos.clear();
+		await db.deletions.clear();
+	});
+	await syncNow();
+	return 'done';
+}
+
 let timer: ReturnType<typeof setTimeout> | undefined;
 function syncSoon() {
 	clearTimeout(timer);

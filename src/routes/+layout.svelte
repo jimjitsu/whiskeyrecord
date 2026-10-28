@@ -21,7 +21,8 @@
 	});
 
 	onMount(() => {
-		if (!isOnboarded() && page.url.pathname !== '/welcome')
+		// The privacy page has to be readable without setting anything up.
+		if (!isOnboarded() && !['/welcome', '/privacy'].includes(page.url.pathname))
 			goto('/welcome', { replaceState: true });
 		// Load Google's sign-in early so a tap can open it without the browser blocking the popup.
 		if (navigator.onLine) loadGis().catch(() => {});

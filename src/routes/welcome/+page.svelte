@@ -65,6 +65,7 @@
 			<button class="link" type="button" onclick={finish}>Not now, keep it on this device</button>
 		</div>
 		<p class="eyebrow step">Step 1 of 2</p>
+		<a class="privacy" href="/privacy">How your data is kept private</a>
 	{:else}
 		<p class="done">
 			<span aria-hidden="true">✓</span>
@@ -164,6 +165,10 @@
 		border-left: 4px solid var(--teal);
 		background: var(--surface);
 		font-size: 14px;
+	}
+	.privacy {
+		font-size: 13px;
+		color: var(--ink-muted);
 	}
 	.step {
 		margin-top: var(--space-4);

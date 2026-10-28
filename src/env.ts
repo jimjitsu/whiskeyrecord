@@ -1,11 +1,17 @@
 import { defineEnvVars } from '@sveltejs/kit/env';
 
-// Meant to be visible in the browser; it's restricted to this app's sites in
-// the Google Cloud console. Set it in .env (see .env.example).
+// Meant to be visible in the browser. The client ID is restricted to this app's
+// sites in the Google Cloud console. Set these in .env (see .env.example).
 export const variables = defineEnvVars({
 	PUBLIC_GOOGLE_CLIENT_ID: {
 		public: true,
 		static: true,
 		description: 'Google OAuth client ID (Web application)'
+	},
+	PUBLIC_FEEDBACK_EMAIL: {
+		public: true,
+		static: true,
+		description: 'Where "Send feedback" in Settings sends email; leave empty to hide it',
+		schema: (v) => v ?? ''
 	}
 });
