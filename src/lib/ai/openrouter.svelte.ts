@@ -123,7 +123,30 @@ export interface VisionModel {
 	name: string;
 	free: boolean;
 	structured: boolean;
+	/** Rough cost in US dollars to read one bottle (both steps), from live pricing. */
+	perBottle: number;
 }
+
+/**
+ * Paid models worth offering, in order. Picked for reading label text into
+ * JSON accurately at a low price (Oct 2026); the full list stays one tap away.
+ */
+export const PAID_SHORTLIST: { id: string; note: string; recommended?: boolean }[] = [
+	{
+		id: 'anthropic/claude-haiku-5.5',
+		note: 'most accurate for the price',
+		recommended: true
+	},
+	{ id: 'openai/gpt-6-luna', note: 'close second, a little faster' },
+	{ id: 'nvidia/nemotron-3.5-super-vl', note: 'the free default, without the daily limit' },
+	{ id: 'anthropic/claude-sonnet-5.5', note: 'for hard-to-read labels' }
+];
+
+// One bottle = two requests (label, then bottle details), each sending up to
+// two ~1200px photos (~1,500 tokens each) plus the prompt, and getting a short
+// JSON answer plus a little reasoning back.
+const TOKENS_IN_PER_BOTTLE = 6_500;
+const TOKENS_OUT_PER_BOTTLE = 800;
 
 let modelCache: Promise<VisionModel[]> | null = null;
 
@@ -142,7 +165,10 @@ export function listVisionModels(): Promise<VisionModel[]> {
 					id: m.id,
 					name: m.name ?? m.id,
 					free: m.id.endsWith(':free') || isZero(m.pricing),
-					structured: !!m.supported_parameters?.includes('response_format')
+					structured: !!m.supported_parameters?.includes('response_format'),
+					perBottle:
+						TOKENS_IN_PER_BOTTLE * Number(m.pricing?.prompt ?? 0) +
+						TOKENS_OUT_PER_BOTTLE * Number(m.pricing?.completion ?? 0)
 				}))
 				.sort((a, b) => Number(b.free) - Number(a.free) || a.name.localeCompare(b.name))
 		)
@@ -442,4 +468,15 @@ export function readLabel(photos: Blob[], signal?: AbortSignal): Promise<LabelRe
 /** Second step: bottle details (cask, mash bill, batch, size, year, region) if printed. */
 export function readDetails(photos: Blob[], signal?: AbortSignal): Promise<DetailReading> {
 	return run(DETAIL_TASK, photos, signal);
+}
+
+/** "about 0.1¢ a bottle (10¢ per 100)" */
+export function costLabel(perBottle: number): string {
+	if (!(perBottle > 0)) return 'free';
+	const cents = perBottle * 100;
+	const each =
+		cents < 0.1 ? 'under 0.1¢' : cents < 10 ? `${cents.toFixed(1)}¢` : `${Math.round(cents)}¢`;
+	const hundred = perBottle * 100;
+	const per100 = hundred < 1 ? `${Math.round(hundred * 100)}¢` : `$${hundred.toFixed(2)}`;
+	return `about ${each} a bottle (${per100} per 100)`;
 }

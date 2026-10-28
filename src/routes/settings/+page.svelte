@@ -15,6 +15,8 @@
 		ai,
 		connectOpenRouter,
 		disconnectOpenRouter,
+		PAID_SHORTLIST,
+		costLabel,
 		listVisionModels,
 		setModel,
 		type VisionModel
@@ -34,6 +36,18 @@
 	});
 	const freeModels = $derived(models.filter((m) => m.free));
 	const paidModels = $derived(models.filter((m) => !m.free));
+	// A short list of good paid models; the rest only on request.
+	let showAllPaid = $state(false);
+	const shortlist = $derived(
+		PAID_SHORTLIST.flatMap((s) => {
+			const m = paidModels.find((p) => p.id === s.id);
+			return m ? [{ ...m, ...s }] : [];
+		})
+	);
+	const otherPaid = $derived(paidModels.filter((m) => !PAID_SHORTLIST.some((s) => s.id === m.id)));
+	const recommended = $derived(shortlist.find((m) => m.recommended));
+	const selected = $derived(models.find((m) => m.id === ai.model));
+	const shortName = (name: string) => name.replace(/^[^:]+:\s*/, '');
 
 	function disconnectAi() {
 		if (!confirm('Disconnect OpenRouter on this device? You can reconnect any time.')) return;
@@ -117,7 +131,7 @@
 </script>
 
 <AppHeader>
-	{#snippet left()}<a class="btn" href="/">‹ Search</a>{/snippet}
+	{#snippet left()}<a class="btn" href="/">‹ Home</a>{/snippet}
 </AppHeader>
 
 <main>
@@ -197,20 +211,58 @@
 							{#each freeModels as m (m.id)}<option value={m.id}>{m.name}</option>{/each}
 						</optgroup>
 					{/if}
-					{#if paidModels.length}
+					{#if shortlist.length}
 						<optgroup label="Paid (uses your OpenRouter credit)">
-							{#each paidModels as m (m.id)}<option value={m.id}>{m.name}</option>{/each}
+							{#each shortlist as m (m.id)}<option value={m.id}
+									>{shortName(m.name)}{m.recommended ? ' · recommended' : ''}</option
+								>{/each}
 						</optgroup>
+					{/if}
+					{#if showAllPaid && otherPaid.length}
+						<optgroup label="Other paid models">
+							{#each otherPaid as m (m.id)}<option value={m.id}>{m.name}</option>{/each}
+						</optgroup>
+					{:else if selected && !selected.free && !shortlist.some((m) => m.id === selected.id)}
+						<option value={selected.id}>{selected.name}</option>
 					{/if}
 					{#if ai.model !== AUTO && !models.some((m) => m.id === ai.model)}
 						<option value={ai.model}>{ai.model}</option>
 					{/if}
 				</select>
 			</div>
-			<p class="muted small">
-				{modelsError ||
-					'Free models allow about 50 label reads a day. If one is busy, a different free model is used.'}
-			</p>
+			{#if modelsError}
+				<p class="muted small">{modelsError}</p>
+			{:else if selected && !selected.free}
+				<p class="muted small">
+					Uses your OpenRouter credit: {costLabel(selected.perBottle)}. No daily limit.
+				</p>
+			{:else}
+				<p class="muted small">
+					Free models allow about 50 AI requests a day. Each bottle uses two (the label, then the
+					bottle details), so that's about 25 bottles a day. If one model is busy, another free one
+					is used.
+				</p>
+			{/if}
+			{#if recommended && !(selected && !selected.free)}
+				<div class="reco">
+					<p class="eyebrow">Want more?</p>
+					<p class="small">
+						Pick <strong>{shortName(recommended.name)}</strong> under Paid. It reads labels the most
+						accurately for the price, at {costLabel(recommended.perBottle)}, with no daily limit.
+						Add credit at
+						<a href="https://openrouter.ai/settings/credits" target="_blank" rel="noopener"
+							>openrouter.ai</a
+						>. Any purchase of $10 or more also raises the free limit to about 500 bottles a day.
+					</p>
+				</div>
+			{/if}
+			{#if models.length && otherPaid.length}
+				<button class="linkbtn" type="button" onclick={() => (showAllPaid = !showAllPaid)}>
+					{showAllPaid
+						? 'Show the short list of paid models'
+						: `Show all ${paidModels.length} paid models`}
+				</button>
+			{/if}
 			<button class="btn btn-block" type="button" onclick={disconnectAi}
 				>Disconnect OpenRouter</button
 			>
@@ -252,5 +304,24 @@
 		border-left: 4px solid var(--red);
 		background: var(--surface);
 		font-size: 14px;
+	}
+	.reco {
+		display: grid;
+		gap: var(--space-1);
+		padding: var(--space-3);
+		border: var(--border);
+		border-left: 4px solid var(--teal);
+	}
+	.reco p {
+		margin: 0;
+	}
+	.linkbtn {
+		justify-self: start;
+		padding: 0;
+		border: 0;
+		background: none;
+		font-size: 14px;
+		text-decoration: underline;
+		cursor: pointer;
 	}
 </style>
